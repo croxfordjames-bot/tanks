@@ -561,8 +561,7 @@ class Bullet {
   update(dt) {
     if (!this.alive) return;
     if (this.type === 'laser') { this.age += dt; if (this.age > 1) this.alive = false; return; }
-    if (this.type === 'flame') {
-      // Constant-speed jet with a fixed lifespan; reach = speed * life
+    if (this.type === 'flame' || this.type === 'freeze') {
       this.life = (this.life || 0) - dt;
       if (this.life <= 0) { this.alive = false; return; }
       this.x += this.vx * dt; this.y += this.vy * dt;
@@ -666,14 +665,21 @@ class Bullet {
     }
     if (this.type === 'flame') {
       let lf = Math.max(0, (this.life || 0) / 1.8);
-      let r = 5 + (1 - lf) * 7; // grows as it cools/fades
-      ctx.save();
-      ctx.globalAlpha = 0.85 * lf;
+      let r = 5 + (1 - lf) * 7;
+      ctx.save(); ctx.globalAlpha = 0.85 * lf;
       let g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
       g.addColorStop(0, '#ffffff'); g.addColorStop(0.35, '#ffd24a'); g.addColorStop(0.75, '#e8531a'); g.addColorStop(1, 'rgba(150,30,0,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI*2); ctx.fill();
-      ctx.restore();
-      return;
+      ctx.restore(); return;
+    }
+    if (this.type === 'freeze') {
+      let lf = Math.max(0, (this.life || 0) / 0.45);
+      let r = 4 + (1 - lf) * 5;
+      ctx.save(); ctx.globalAlpha = 0.9 * lf;
+      let g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.3, '#a8f0ff'); g.addColorStop(0.7, '#0099cc'); g.addColorStop(1, 'rgba(0,120,200,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI*2); ctx.fill();
+      ctx.restore(); return;
     }
     // Trail
     this.trail.forEach((t, i) => {
@@ -821,8 +827,16 @@ class Tank {
       this.wCool.thor = 6.0;
 
     } else if (w === 'cannon') {
-      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*133, Math.sin(angle)*133, 'cannon', owner));
-      this.wCool.cannon = 0.7;
+      // Freeze ray: same stream mechanic as flamethrower, blue ice particles, no damage
+      for (let i = 0; i < 3; i++) {
+        let a = angle + (Math.random() - 0.5) * 0.45;
+        let spd = 160 + Math.random() * 80;
+        let fb = new Bullet(this.x + Math.cos(angle)*14, this.y + Math.sin(angle)*14,
+                            Math.cos(a)*spd, Math.sin(a)*spd, 'freeze', owner);
+        fb.life = 0.45;
+        bullets.push(fb);
+      }
+      this.wCool.cannon = 0.05;
 
     } else if (w === 'spread') {
       let offsets = [-0.44, -0.22, 0, 0.22, 0.44];
@@ -1820,9 +1834,8 @@ function checkBulletHits(dt) {
     // vs opponent tank — skip friendly fire in co-op
     if (!(mode === 'coop' && isFriendlyBullet) && b.owner !== oppNum && oppTank && !oppTank.dead) {
       if (dist(b.x, b.y, oppTank.x, oppTank.y) < TANK_SIZE/2 + bulletRadius(b.type)) {
-        if (b.type === 'cannon') {
+        if (b.type === 'freeze') {
           oppTank.frozen = true; oppTank.frozenTimer = 10;
-          spawnExplosion(b.x, b.y, 50, false);
           send({ type: 'freezePlayer', target: oppTank.playerNum });
         } else { oppTank.takeDamage(bulletDmg(b.type)); }
         b.alive = false;
@@ -1831,9 +1844,8 @@ function checkBulletHits(dt) {
     // vs my tank — skip friendly fire in co-op
     if (!(mode === 'coop' && isFriendlyBullet) && b.owner !== myNum && myTank && !myTank.dead) {
       if (dist(b.x, b.y, myTank.x, myTank.y) < TANK_SIZE/2 + bulletRadius(b.type)) {
-        if (b.type === 'cannon') {
+        if (b.type === 'freeze') {
           myTank.frozen = true; myTank.frozenTimer = 10;
-          spawnExplosion(b.x, b.y, 50, false);
         } else { myTank.takeDamage(bulletDmg(b.type)); }
         b.alive = false;
       }
@@ -1843,9 +1855,8 @@ function checkBulletHits(dt) {
       aiTanks.filter(a => !a.dead).forEach(a => {
         if (!b.alive) return;
         if (dist(b.x, b.y, a.x, a.y) < TANK_SIZE/2 + bulletRadius(b.type)) {
-          if (b.type === 'cannon') {
-            a.frozen = true; a.frozenTimer = 10;
-            spawnExplosion(b.x, b.y, 50, false);
+          if (b.type === 'freeze') {
+            a.frozen = true; a.frozenTimer = 10; // reset timer if already frozen
           } else {
             let wasDead = a.dead;
             a.takeDamage(bulletDmg(b.type));
@@ -1862,13 +1873,6 @@ function checkBulletHits(dt) {
           }
           b.alive = false;
         }
-      });
-    }
-    // (freeze ray has no splash — old cannon splash removed)
-    if (b.type === 'cannon' && !b.alive) {
-      // Freeze splash — nearby AI within 60px also get frozen
-      aiTanks.filter(a => !a.dead && !a.frozen).forEach(a => {
-        if (dist(b.x, b.y, a.x, a.y) < 60) { a.frozen = true; a.frozenTimer = 10; }
       });
     }
     // Rocket can be shot by other bullets
@@ -1917,7 +1921,7 @@ function checkBulletHits(dt) {
   aiBullets = aiBullets.filter(b => b.alive);
 }
 
-function bulletRadius(type) { return type === 'cannon' ? 8 : type === 'flame' ? 7 : 4; }
+function bulletRadius(type) { return type === 'cannon' ? 8 : type === 'flame' || type === 'freeze' ? 7 : 4; }
 function bulletDmg(type) { return (type === 'rocket' || type === 'laser') ? 2 : 1; }
 
 // ============================================================
