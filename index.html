@@ -342,6 +342,10 @@ function handleNetworkData(data) {
       playerWalls = data.playerWalls;
     }
     if (data.mines) { mines = data.mines; }
+    if (data.airstrikes) {
+      // Guest renders from host's authoritative state — no local simulation
+      airstrikes = data.airstrikes.map(a => Object.assign({ bombTimer:0, bombsSpawned:0 }, a));
+    }
     aiBullets = (data.aiBullets || []).map(b => Object.assign(new Bullet(b.x, b.y, b.vx, b.vy, b.type, b.owner), b));
     // merge explosions from host
     if (data.explosions) {
@@ -394,7 +398,7 @@ function handleNetworkData(data) {
     spawnExplosion(data.x, data.y, data.radius, false);
     if (myTank && !myTank.dead && dist(data.x, data.y, myTank.x, myTank.y) < data.radius) myTank.takeDamage(data.dmg);
   } else if (data.type === 'airstrikeLaunch') {
-    // Other client placed a strike — mirror it so we see the marker and plane
+    // Show crosshair immediately — full state arrives via next 'state' packet
     let d = data.as;
     if (!airstrikes.find(a => a.id === d.id))
       airstrikes.push({ id:d.id, tx:d.tx, ty:d.ty, owner:d.owner, delay:d.delay,
@@ -402,10 +406,12 @@ function handleNetworkData(data) {
                         active:false, done:false, passed:false,
                         bombs:[], bombTimer:0, bombsSpawned:0 });
   } else if (data.type === 'airstrikeBomb') {
-    // Host detonated a bomb — guest shows explosion and takes friendly-fire damage
-    spawnExplosion(data.x, data.y, AIRSTRIKE_BOMB_RADIUS, false);
-    if (myTank && !myTank.dead && dist(data.x, data.y, myTank.x, myTank.y) < AIRSTRIKE_BOMB_RADIUS)
-      myTank.takeDamage(AIRSTRIKE_BOMB_DAMAGE);
+    // Host is authoritative — guest shows explosion and takes its own friendly-fire damage
+    if (!isHost) {
+      spawnExplosion(data.x, data.y, AIRSTRIKE_BOMB_RADIUS, false);
+      if (myTank && !myTank.dead && dist(data.x, data.y, myTank.x, myTank.y) < AIRSTRIKE_BOMB_RADIUS)
+        myTank.takeDamage(AIRSTRIKE_BOMB_DAMAGE);
+    }
   } else if (data.type === 'wallPlace') {
     let w = data.wall;
     playerWalls.push(w);
@@ -2471,7 +2477,7 @@ function gameLoop(ts) {
   // Medpacks
   updateMedpacks(dt);
   if (isHost) updateMines(dt);
-  updateAirstrikes(dt);
+  if (isHost || isSolo) updateAirstrikes(dt); // host-authoritative, same as mines
 
   // Network send
   if (myTank) {
@@ -2494,6 +2500,7 @@ function gameLoop(ts) {
         turretBullets: turretBullets.map(b => ({x:b.x,y:b.y,vx:b.vx,vy:b.vy,type:b.type,owner:b.owner})),
         playerWalls: playerWalls.map(w => ({col:w.col,row:w.row,hp:w.hp,maxHp:w.maxHp,id:w.id})),
         mines: mines.filter(m => m.alive).map(m => ({x:m.x,y:m.y,owner:m.owner,alive:true,armTimer:m.armTimer,id:m.id,angle:m.angle||0})),
+        airstrikes: airstrikes.filter(a=>!a.done).map(a=>({id:a.id,tx:a.tx,ty:a.ty,delay:a.delay,active:a.active,passed:a.passed,done:a.done,px:a.px,py:a.py,vx:a.vx,vy:a.vy,bombs:a.bombs.map(b=>({x:b.x,y:b.y,timer:b.timer,exploded:b.exploded}))})),
         aiBullets: aiBullets.map(b=>({x:b.x,y:b.y,vx:b.vx,vy:b.vy,type:b.type,owner:b.owner,id:b.id,bulletDamage:b.bulletDamage||1})),
         explosions: explosions.map(e=>({...e}))
       });
@@ -2501,6 +2508,7 @@ function gameLoop(ts) {
   }
 
   // DRAW
+  ctx.clearRect(0, 0, W, H); // guarantee clean slate — prevents ghost rendering from leaked alpha
   drawMap(ctx);
   drawKoth(ctx);
   drawPickups(ctx);
