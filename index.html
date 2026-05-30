@@ -378,12 +378,10 @@ function handleNetworkData(data) {
     let m = mines.find(m => m.id === data.id);
     if (m) { m.alive = false; }
     spawnExplosion(data.x, data.y, MINE_RADIUS, false);
-    // No friendly fire: only the enemy player takes blast damage, and only in KoTH.
-    if (mode === 'koth') {
-      [myTank, oppTank].filter(t => t && !t.dead && t.playerNum !== data.owner).forEach(t => {
-        if (dist(data.x, data.y, t.x, t.y) < MINE_RADIUS) t.takeDamage(MINE_DAMAGE);
-      });
-    }
+    // Robo-mines hurt everyone including the owner.
+    [myTank, oppTank].filter(t => t && !t.dead).forEach(t => {
+      if (dist(data.x, data.y, t.x, t.y) < MINE_RADIUS) t.takeDamage(MINE_DAMAGE);
+    });
   } else if (data.type === 'bossSpawn') {
     showLevelBanner('BOSS INCOMING!', 'Defeat the boss to clear the level!');
   } else if (data.type === 'laserHit') {
@@ -835,35 +833,39 @@ class Tank {
 // ============================================================
 class AiTank extends Tank {
   constructor(x, y, tankType) {
-    let color = tankType === 'boss' ? AI_COLOR_BOSS : tankType === 'seeker' ? AI_COLOR_SEEKER : tankType === 'kamikaze' ? AI_COLOR_KAMIKAZE : tankType === 'brute' ? AI_COLOR_BRUTE : tankType === 'heavy' ? AI_COLOR_HEAVY : AI_COLOR;
+    // Boss gets a camo color that darkens/shifts each level
+    let bossColor = tankType === 'boss'
+      ? `hsl(${90 - level * 8},${Math.max(25, 60 - level * 4)}%,${Math.max(18, 38 - level * 3)}%)`
+      : null;
+    let color = bossColor || (tankType === 'seeker' ? AI_COLOR_SEEKER : tankType === 'kamikaze' ? AI_COLOR_KAMIKAZE : tankType === 'brute' ? AI_COLOR_BRUTE : tankType === 'heavy' ? AI_COLOR_HEAVY : AI_COLOR);
     super(x, y, color, 0);
     this.tankType = tankType || 'light';
     if (this.tankType === 'boss') {
-      let bossHp = 5 + level * 2; // 7, 9, 11, 13... gentler scaling
+      let bossHp = 5 + level * 1.5;
       this.hp = bossHp; this.maxHp = bossHp;
-      this.speedMult = Math.min(0.7, 0.35 + level * 0.04); // slower, caps lower
+      this.speedMult = Math.min(0.7, 0.5 + level * 0.02); // 0.5 base, caps at 0.7
       this.isBoss = true;
-      this.bossFireRate = Math.max(0.6, 1.5 - level * 0.1); // fires slower, min 0.6s
-      this.bossBulletCount = Math.min(5, 2 + Math.floor(level / 3)); // fewer bullets per volley
+      this.bossFireRate = Math.max(0.6, 1.5 - level * 0.1);
+      this.bossBulletCount = Math.min(5, 2 + Math.floor(level / 3));
     } else if (this.tankType === 'heavy') {
       this.hp = 2; this.maxHp = 2;
-      this.speedMult = 0.7;
+      this.speedMult = 0.1;
     } else if (this.tankType === 'brute') {
-      this.hp = 1; this.maxHp = 1;
-      this.speedMult = 0.4;
+      this.hp = 2; this.maxHp = 2;
+      this.speedMult = 0.5;
       this.isBrute = true;
-      this.bulletDamage = 2; // double damage
+      this.bulletDamage = 3; // triple damage
     } else if (this.tankType === 'seeker') {
       this.hp = 2; this.maxHp = 2;
       this.speedMult = 0.85;
-      this.isSeeker = true; // fires timed homing missiles
+      this.isSeeker = true;
     } else if (this.tankType === 'kamikaze') {
       this.hp = 1; this.maxHp = 1;
-      this.speedMult = 1.35; // fast rusher
-      this.isKamikaze = true; // chases and self-destructs
-    } else {
+      this.speedMult = 1.4;
+      this.isKamikaze = true;
+    } else { // light
       this.hp = 1; this.maxHp = 1;
-      this.speedMult = 1;
+      this.speedMult = 1.4;
     }
     this.state = 'patrol';
     this.patrolTimer = 0;
@@ -2016,13 +2018,10 @@ function detonateMine(m) {
       }
     });
   }
-  // No friendly fire: robot blasts never hurt their owner, allies, or friendly turrets.
-  // Co-op blasts only hit AI (above); in KoTH they hit only the enemy player.
-  if (mode === 'koth') {
-    [myTank, oppTank].filter(t => t && !t.dead && t.playerNum !== m.owner).forEach(t => {
-      if (dist(m.x, m.y, t.x, t.y) < MINE_RADIUS) t.takeDamage(MINE_DAMAGE);
-    });
-  }
+  // Robo-mines hurt everyone — including the player who deployed them.
+  [myTank, oppTank].filter(t => t && !t.dead).forEach(t => {
+    if (dist(m.x, m.y, t.x, t.y) < MINE_RADIUS) t.takeDamage(MINE_DAMAGE);
+  });
 }
 
 function drawMines(ctx) {
