@@ -650,8 +650,8 @@ class Tank {
     this.baseX = x; this.baseY = y;
     this.ammo = { maingun: Infinity, airstrike: Infinity, cannon: Infinity, spread: Infinity, laser: Infinity, mine: Infinity, flamethrower: Infinity };
     this.activeWeapon = 'maingun';
-    this.laserCooldown = 0;
-    this.fireCooldown = 0;
+    // Per-weapon cooldown: each weapon cools independently so switching never penalises you
+    this.wCool = { maingun:0, airstrike:0, cannon:0, spread:0, laser:0, mine:0, flamethrower:0 };
     this.shieldFlash = 0;
     this.lives = LIVES_PER_LEVEL;
   }
@@ -687,7 +687,8 @@ class Tank {
     this.dead = false; this.hp = this.maxHp; this.shieldHp = 0; this.speedBoost = 0;
     this.x = this.baseX; this.y = this.baseY;
     this.ammo = { maingun: Infinity, airstrike: Infinity, cannon: Infinity, spread: Infinity, laser: Infinity, mine: Infinity, flamethrower: Infinity };
-    this.activeWeapon = 'maingun'; this.laserCooldown = 0; this.fireCooldown = 0;
+    this.activeWeapon = 'maingun';
+    this.wCool = { maingun:0, airstrike:0, cannon:0, spread:0, laser:0, mine:0, flamethrower:0 };
   }
 
   move(dt, dx, dy) {
@@ -714,63 +715,64 @@ class Tank {
       this.x = Math.max(TANK_SIZE/2, Math.min(W - TANK_SIZE/2, this.x));
       this.y = Math.max(TANK_SIZE/2, Math.min(H - TANK_SIZE/2, this.y));
     }
-    if (this.fireCooldown > 0) this.fireCooldown -= dt;
-    if (this.laserCooldown > 0) this.laserCooldown -= dt;
+    for (let w in this.wCool) { if (this.wCool[w] > 0) this.wCool[w] = Math.max(0, this.wCool[w] - dt); }
     if (this.shieldFlash > 0) this.shieldFlash -= dt;
   }
 
-  fire(targetX, targetY) {
+  // holdFire: called every frame while mouse is held (maingun, laser, flamethrower)
+  // clickFire: called once per click (airstrike, mine, cannon, spread, rocket)
+  fire(targetX, targetY, isHold) {
     if (this.dead) return;
-    if (this.fireCooldown > 0) return;
-    let w = this.activeWeapon;
-    if (w !== 'maingun' && this.ammo[w] <= 0) return;
-    // laser has no cooldown now
+    const w = this.activeWeapon;
+    if ((this.wCool[w] || 0) > 0) return;
 
-    let angle = Math.atan2(targetY - this.y, targetX - this.x);
-    let owner = this.playerNum;
+    // Click-only weapons: skip when called from the hold loop
+    const clickOnly = (w === 'airstrike' || w === 'mine');
+    if (isHold && clickOnly) return;
+
+    const angle = Math.atan2(targetY - this.y, targetX - this.x);
+    const owner = this.playerNum;
 
     if (w === 'maingun') {
-      let speed = 140;
-      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 'maingun', owner));
-      this.fireCooldown = 0.5;
+      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*140, Math.sin(angle)*140, 'maingun', owner));
+      this.wCool.maingun = 0.5;
+
     } else if (w === 'airstrike') {
-      // Place a target marker — the actual strike is handled by launchAirstrike()
       launchAirstrike(targetX, targetY, owner);
-      this.ammo.airstrike--; this.fireCooldown = 4.0;
+      this.wCool.airstrike = 4.0;
+
     } else if (w === 'cannon') {
       bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*133, Math.sin(angle)*133, 'cannon', owner));
-      this.ammo.cannon--; this.fireCooldown = 0.7;
+      this.wCool.cannon = 0.7;
+
     } else if (w === 'spread') {
-      let base = angle, spread = 0.22;
-      let offsets = [-2*spread, -spread, 0, spread, 2*spread];
-      offsets.forEach(off => {
-        let a = base + off;
-        bullets.push(new Bullet(this.x, this.y, Math.cos(a)*153, Math.sin(a)*153, 'spread', owner));
-      });
-      this.ammo.spread--; this.fireCooldown = 0.75;
+      let offsets = [-0.44, -0.22, 0, 0.22, 0.44];
+      offsets.forEach(off => bullets.push(new Bullet(
+        this.x, this.y, Math.cos(angle+off)*153, Math.sin(angle+off)*153, 'spread', owner)));
+      this.wCool.spread = 0.75;
+
     } else if (w === 'laser') {
       fireLaser(this, angle, owner);
-      this.ammo.laser--; this.fireCooldown = 0.8;
+      this.wCool.laser = 0.8;
+
     } else if (w === 'mine') {
-      // Cap how many live robo-mines this player can have deployed at once
       if (mines.filter(m => m.owner === owner && m.alive).length >= MAX_ROBOMINES_PER_PLAYER) return;
-      mines.push({ x: this.x, y: this.y, owner, alive: true, armTimer: 1.5, id: Math.random().toString(36).slice(2) });
-      this.ammo.mine--; this.fireCooldown = 0.5;
-      send({ type: 'minePlaced', mine: { x: this.x, y: this.y, owner, id: mines[mines.length-1].id } });
+      let id = Math.random().toString(36).slice(2);
+      mines.push({ x: this.x, y: this.y, owner, alive: true, armTimer: 1.5, id });
+      send({ type: 'minePlaced', mine: { x: this.x, y: this.y, owner, id } });
+      this.wCool.mine = 0.5;
+
     } else if (w === 'flamethrower') {
-      // Cone of fire — a long-reaching jet of flame particles (hold to stream).
-      // Reach ~= speed * life; tuned for roughly 5x the original short range.
       for (let i = 0; i < 2; i++) {
         let a = angle + (Math.random() - 0.5) * 0.5;
-        let speed = 180 + Math.random() * 100;
-        let fb = new Bullet(this.x + Math.cos(angle)*16, this.y + Math.sin(angle)*16, Math.cos(a)*speed, Math.sin(a)*speed, 'flame', owner);
+        let spd = 180 + Math.random() * 100;
+        let fb = new Bullet(this.x + Math.cos(angle)*16, this.y + Math.sin(angle)*16,
+                            Math.cos(a)*spd, Math.sin(a)*spd, 'flame', owner);
         fb.life = 1.8;
         bullets.push(fb);
       }
-      this.fireCooldown = 0.05;
+      this.wCool.flamethrower = 0.05;
     }
-
-    if (this.ammo[w] <= 0 && w !== 'maingun') this.activeWeapon = 'maingun';
   }
 
   cycleWeapon() {
@@ -2325,7 +2327,8 @@ function updateHUD() {
       let ammo = myTank.ammo[w];
       let ammoStr = ammo === Infinity ? '∞' : ammo;
       let coolStr = '';
-      if (w === 'laser' && myTank.laserCooldown > 0) coolStr = `<div class="wcool">${myTank.laserCooldown.toFixed(1)}s</div>`;
+      let wc = myTank.wCool && myTank.wCool[w] > 0.05 ? myTank.wCool[w] : 0;
+      if (wc > 0) coolStr = `<div class="wcool">${wc.toFixed(1)}s</div>`;
       slot.innerHTML = `<div class="wname">${WEAPON_NAMES[w]}</div><div class="wammo">${ammoStr}</div>${coolStr}`;
       wb.appendChild(slot);
     });
@@ -2421,7 +2424,7 @@ function gameLoop(ts) {
     myTank.turretAngle = Math.atan2(ly - myTank.y, lx - myTank.x);
     // Hold-to-fire: stream while the mouse is held (cooldown gates each weapon's rate).
     // Skipped during turret/wall placement so clicks place instead of shoot.
-    if (mouseDown && !placingTurret) myTank.fire(lx, ly);
+    if (mouseDown && !placingTurret) myTank.fire(lx, ly, true); // hold=true skips click-only weapons
   }
 
   // KoTH
@@ -2598,7 +2601,7 @@ document.getElementById('canvas').addEventListener('click', e => {
     if (tryUpgradeTurret(cx, cy)) return;
   }
   // Normal fire
-  if (myTank) myTank.fire(cx, cy);
+  if (myTank) myTank.fire(cx, cy, false); // click=false allows click-only weapons
 });
 
 // Cycle weapon on right click
