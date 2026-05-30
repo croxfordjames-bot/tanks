@@ -404,6 +404,9 @@ function handleNetworkData(data) {
   } else if (data.type === 'enemyBlast') {
     spawnExplosion(data.x, data.y, data.radius, false);
     if (myTank && !myTank.dead && dist(data.x, data.y, myTank.x, myTank.y) < data.radius) myTank.takeDamage(data.dmg);
+  } else if (data.type === 'thorPlayerHit') {
+    // Host confirmed wave crossed the guest tank — guest damages itself
+    if (!isHost && myTank && !myTank.dead) myTank.takeDamage(data.dmg);
   } else if (data.type === 'thorLaunch') {
     if (!thorStrikes.find(s => s.id === data.id))
       thorStrikes.push({ id:data.id, tx:data.tx, ty:data.ty, owner:data.owner,
@@ -720,6 +723,12 @@ class Tank {
     }
     let spd = 138;
     if (this.speedMult) spd *= this.speedMult;
+    // Weapon carry penalty — heavy weapons slow you down
+    const weaponSpeedMult = {
+      maingun: 1.5, airstrike: 0.5, thor: 0.5,
+      cannon: 1.2, spread: 1.1, laser: 1.1, flamethrower: 1.1, mine: 1.0
+    };
+    spd *= (weaponSpeedMult[this.activeWeapon] || 1.0);
     if (this.speedBoost > 0) { spd *= 1.6; this.speedBoost -= dt; }
 
     if (dx !== 0 || dy !== 0) {
@@ -2315,7 +2324,17 @@ function updateThor(dt) {
         if (d >= innerR && d <= outerR && !s.hitIds.has(t.id))
           { s.hitIds.add(t.id); t.takeDamage(THOR_WAVE_DAMAGE); }
       });
-      // No friendly fire — Thor wave only damages AI and turrets
+      // In KoTH: wave damages the opponent (enemy) but never the shooter
+      if (mode === 'koth' && oppTank && !oppTank.dead && oppTank.playerNum !== s.owner) {
+        let d = dist(s.tx, s.ty, oppTank.x, oppTank.y);
+        let oppKey = 'opp' + oppTank.playerNum;
+        if (d >= innerR && d <= outerR && !s.hitIds.has(oppKey)) {
+          s.hitIds.add(oppKey);
+          oppTank.takeDamage(THOR_WAVE_DAMAGE);
+          send({ type:'thorPlayerHit', dmg: THOR_WAVE_DAMAGE }); // guest applies to own tank
+        }
+      }
+      // myTank is NEVER damaged by Thor (no self-damage in any mode)
 
       if (s.waveR > THOR_WAVE_MAXR) s.phase = 'done';
     }
