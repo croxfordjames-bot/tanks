@@ -210,6 +210,7 @@ let placingTurret = null;    // null or turret type being placed ('machinegun','
 let turretBullets = [];
 let playerWalls = [];        // { col, row, hp, maxHp, id }
 let mines = [];              // { x, y, owner, alive, armTimer }
+let airstrikes = [];         // { tx, ty, delay, planeX, planeY, vx, vy, owner, bombs, done }
 
 // Turret definitions
 const MAX_TURRETS = 6;
@@ -390,9 +391,21 @@ function handleNetworkData(data) {
     // Guest registered an AI bullet hitting itself — host removes it so it dies for everyone
     if (isHost) { let hb = aiBullets.find(x => x.id === data.id); if (hb) hb.alive = false; }
   } else if (data.type === 'enemyBlast') {
-    // Enemy AOE (kamikaze): guest shows it and damages its own tank
     spawnExplosion(data.x, data.y, data.radius, false);
     if (myTank && !myTank.dead && dist(data.x, data.y, myTank.x, myTank.y) < data.radius) myTank.takeDamage(data.dmg);
+  } else if (data.type === 'airstrikeLaunch') {
+    // Other client placed a strike — mirror it so we see the marker and plane
+    let d = data.as;
+    if (!airstrikes.find(a => a.id === d.id))
+      airstrikes.push({ id:d.id, tx:d.tx, ty:d.ty, owner:d.owner, delay:d.delay,
+                        px:d.px, py:d.py, vx:d.vx, vy:d.vy,
+                        active:false, done:false, passed:false,
+                        bombs:[], bombTimer:0, bombsSpawned:0 });
+  } else if (data.type === 'airstrikeBomb') {
+    // Host detonated a bomb — guest shows explosion and takes friendly-fire damage
+    spawnExplosion(data.x, data.y, AIRSTRIKE_BOMB_RADIUS, false);
+    if (myTank && !myTank.dead && dist(data.x, data.y, myTank.x, myTank.y) < AIRSTRIKE_BOMB_RADIUS)
+      myTank.takeDamage(AIRSTRIKE_BOMB_DAMAGE);
   } else if (data.type === 'wallPlace') {
     let w = data.wall;
     playerWalls.push(w);
@@ -503,8 +516,8 @@ function randomPickupPos() {
 // ============================================================
 // WEAPONS
 // ============================================================
-const WEAPONS = ['maingun','rocket','cannon','spread','laser','mine','flamethrower'];
-const WEAPON_NAMES = { maingun:'Main Gun', rocket:'Rocket', cannon:'Cannon', spread:'Spread Shot', laser:'Laser', mine:'Robo-Mine', flamethrower:'Flamethrower' };
+const WEAPONS = ['maingun','airstrike','cannon','spread','laser','mine','flamethrower'];
+const WEAPON_NAMES = { maingun:'Main Gun', airstrike:'Airstrike', cannon:'Cannon', spread:'Spread Shot', laser:'Laser', mine:'Robo-Mine', flamethrower:'Flamethrower' };
 
 // ============================================================
 // BULLET CLASS
@@ -534,10 +547,8 @@ class Bullet {
     if (this.trail.length > 10) this.trail.shift();
     this.trail.forEach(t => t.age += dt);
 
-    // Rocket homing
+    // Rocket homing (player rockets removed; AI may still use this path)
     if (this.type === 'rocket') {
-      // Seeker missiles carry a lifespan; once it runs out they fizzle (you outran it)
-      if (this.ttl !== undefined) { this.ttl -= dt; if (this.ttl <= 0) { this.alive = false; return; } }
       let targets = [];
       if (this.owner === 1 || this.owner === 2) {
         if (mode === 'coop') {
@@ -637,7 +648,7 @@ class Tank {
     this.shieldHp = 0; this.speedBoost = 0;
     this.dead = false; this.respawnTimer = 0;
     this.baseX = x; this.baseY = y;
-    this.ammo = { maingun: Infinity, rocket: Infinity, cannon: Infinity, spread: Infinity, laser: Infinity, mine: Infinity, flamethrower: Infinity };
+    this.ammo = { maingun: Infinity, airstrike: Infinity, cannon: Infinity, spread: Infinity, laser: Infinity, mine: Infinity, flamethrower: Infinity };
     this.activeWeapon = 'maingun';
     this.laserCooldown = 0;
     this.fireCooldown = 0;
@@ -675,7 +686,7 @@ class Tank {
   respawn() {
     this.dead = false; this.hp = this.maxHp; this.shieldHp = 0; this.speedBoost = 0;
     this.x = this.baseX; this.y = this.baseY;
-    this.ammo = { maingun: Infinity, rocket: Infinity, cannon: Infinity, spread: Infinity, laser: Infinity, mine: Infinity, flamethrower: Infinity };
+    this.ammo = { maingun: Infinity, airstrike: Infinity, cannon: Infinity, spread: Infinity, laser: Infinity, mine: Infinity, flamethrower: Infinity };
     this.activeWeapon = 'maingun'; this.laserCooldown = 0; this.fireCooldown = 0;
   }
 
@@ -722,9 +733,10 @@ class Tank {
       let speed = 140;
       bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 'maingun', owner));
       this.fireCooldown = 0.5;
-    } else if (w === 'rocket') {
-      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*53, Math.sin(angle)*53, 'rocket', owner));
-      this.ammo.rocket--; this.fireCooldown = 1.0;
+    } else if (w === 'airstrike') {
+      // Place a target marker — the actual strike is handled by launchAirstrike()
+      launchAirstrike(targetX, targetY, owner);
+      this.ammo.airstrike--; this.fireCooldown = 4.0;
     } else if (w === 'cannon') {
       bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*133, Math.sin(angle)*133, 'cannon', owner));
       this.ammo.cannon--; this.fireCooldown = 0.7;
@@ -936,11 +948,12 @@ class AiTank extends Tank {
             aiBullets.push(bb);
           }
         } else if (this.isSeeker) {
-          // Heat-seeking missile that expires after a few seconds (outrun it to survive)
-          let mb = new Bullet(this.x, this.y, Math.cos(a)*180, Math.sin(a)*180, 'rocket', 0);
-          mb.bulletDamage = 2;
-          mb.ttl = 3.5;
-          aiBullets.push(mb);
+          // Fires a tight triple burst instead of homing missiles
+          for (let si = -1; si <= 1; si++) {
+            let sb = new Bullet(this.x, this.y, Math.cos(a + si*0.12)*320, Math.sin(a + si*0.12)*320, 'maingun', 0);
+            sb.bulletDamage = 1;
+            aiBullets.push(sb);
+          }
         } else {
           let bb = new Bullet(this.x, this.y, Math.cos(a)*speed, Math.sin(a)*speed, 'maingun', 0);
           bb.bulletDamage = this.bulletDamage || 1;
@@ -1930,7 +1943,7 @@ function drawMedpacks(ctx) {
 // ============================================================
 const MINE_RADIUS = 60;    // explosion blast radius
 const MINE_DAMAGE = 3;
-const MAX_ROBOMINES_PER_PLAYER = 4; // how many live robo-mines each player may have out
+const MAX_ROBOMINES_PER_PLAYER = 5; // how many live robo-mines each player may have out
 const ROBOT_SPEED = 74;        // hunter-robot move speed (slower than tanks @138)
 const ROBOT_TRIGGER_DIST = 22; // how close to an enemy before it explodes
 const ROBOT_SEP_DIST = 36;     // robots push apart within this distance (no clumping)
@@ -2056,6 +2069,155 @@ function drawMines(ctx) {
 
 // ============================================================
 // MAP DRAWING
+// ============================================================
+// AIRSTRIKE SYSTEM
+// ============================================================
+const AIRSTRIKE_PLANE_SPEED = 480; // px/s
+const AIRSTRIKE_BOMB_COUNT  = 6;
+const AIRSTRIKE_BOMB_SPREAD = 55;  // random offset from target center per bomb
+const AIRSTRIKE_BOMB_RADIUS = 75;  // blast radius
+const AIRSTRIKE_BOMB_DAMAGE = 3;
+const AIRSTRIKE_FALL_TIME   = 0.5; // seconds bomb "falls" before detonating
+
+function launchAirstrike(tx, ty, owner) {
+  // Plane enters from the opposite side of the map relative to target
+  let fromLeft = tx > W / 2;
+  let px = fromLeft ? -60 : W + 60;
+  let py = ty + (Math.random() - 0.5) * 80;
+  let angle = Math.atan2(ty - py, tx - px);
+  let vx = Math.cos(angle) * AIRSTRIKE_PLANE_SPEED;
+  let vy = Math.sin(angle) * AIRSTRIKE_PLANE_SPEED;
+  let id = Math.random().toString(36).slice(2);
+  let as = { id, tx, ty, owner, delay: 1.5, px, py, vx, vy,
+             active: false, done: false, passed: false,
+             bombs: [], bombTimer: 0, bombsSpawned: 0 };
+  airstrikes.push(as);
+  // Tell the other client about this strike so they see the marker and plane
+  send({ type: 'airstrikeLaunch', as: { id, tx, ty, owner, delay: as.delay, px, py, vx, vy } });
+}
+
+function updateAirstrikes(dt) {
+  airstrikes.forEach(a => {
+    if (a.done) return;
+    if (!a.active) { a.delay -= dt; if (a.delay <= 0) a.active = true; return; }
+
+    // Move plane
+    a.px += a.vx * dt;
+    a.py += a.vy * dt;
+
+    // Drop bombs as it passes through the target zone
+    if (!a.passed) {
+      let d = dist(a.px, a.py, a.tx, a.ty);
+      if (d < 220) {
+        a.bombTimer -= dt;
+        if (a.bombTimer <= 0 && a.bombsSpawned < AIRSTRIKE_BOMB_COUNT) {
+          let bx = a.tx + (Math.random() - 0.5) * AIRSTRIKE_BOMB_SPREAD * 2;
+          let by = a.ty + (Math.random() - 0.5) * AIRSTRIKE_BOMB_SPREAD * 2;
+          a.bombs.push({ x: bx, y: by, timer: AIRSTRIKE_FALL_TIME, exploded: false });
+          a.bombsSpawned++;
+          a.bombTimer = 0.18;
+        }
+        if (a.bombsSpawned >= AIRSTRIKE_BOMB_COUNT) a.passed = true;
+      }
+    }
+
+    // Detonate landed bombs — host applies AI+turret damage; each client damages its own tank
+    a.bombs.forEach(b => {
+      if (b.exploded) return;
+      b.timer -= dt;
+      if (b.timer <= 0) {
+        b.exploded = true;
+        spawnExplosion(b.x, b.y, AIRSTRIKE_BOMB_RADIUS, false);
+        send({ type: 'airstrikeBomb', x: b.x, y: b.y }); // guest shows boom + self-damage
+        // AI and turret damage (host only)
+        if (isHost || isSolo) {
+          aiTanks.filter(t => !t.dead).forEach(t => {
+            if (dist(b.x, b.y, t.x, t.y) < AIRSTRIKE_BOMB_RADIUS) {
+              let wasDead = t.dead;
+              t.takeDamage(AIRSTRIKE_BOMB_DAMAGE);
+              if (!wasDead && t.dead) {
+                awardCoins(a.owner, aiReward(t));
+                aiKillCount++;
+                if (aiKillCount >= nextMedpackAt) {
+                  medpacks.push({ x: t.x, y: t.y, hp: 2, pulse: 0, alive: true, ttl: 10 });
+                  aiKillCount = 0; nextMedpackAt = 2 + Math.floor(Math.random() * 2);
+                }
+                if (mode === 'coop') onAIKilled();
+              }
+            }
+          });
+          turrets.filter(t => !t.dead).forEach(t => {
+            if (dist(b.x, b.y, t.x, t.y) < AIRSTRIKE_BOMB_RADIUS) t.takeDamage(AIRSTRIKE_BOMB_DAMAGE);
+          });
+        }
+        // Friendly fire — each client applies to its own tank
+        if (myTank && !myTank.dead && dist(b.x, b.y, myTank.x, myTank.y) < AIRSTRIKE_BOMB_RADIUS)
+          myTank.takeDamage(AIRSTRIKE_BOMB_DAMAGE);
+      }
+    });
+
+    // Plane has left the map
+    if (a.px < -120 || a.px > W + 120 || a.py < -120 || a.py > H + 120) {
+      if (a.bombs.every(b => b.exploded)) a.done = true;
+    }
+  });
+  airstrikes = airstrikes.filter(a => !a.done);
+}
+
+function drawAirstrikes(ctx) {
+  airstrikes.forEach(a => {
+    // Target crosshair (pulses while waiting, steady while active)
+    if (!a.done) {
+      let alpha = a.active ? 0.9 : 0.45 + 0.35 * Math.sin(Date.now() * 0.008);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = '#ff2020'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(a.tx, a.ty, 22, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(a.tx - 34, a.ty); ctx.lineTo(a.tx + 34, a.ty);
+      ctx.moveTo(a.tx, a.ty - 34); ctx.lineTo(a.tx, a.ty + 34);
+      ctx.stroke();
+      ctx.fillStyle = '#ff2020'; ctx.font = 'bold 10px Courier New';
+      ctx.textAlign = 'center'; ctx.fillText('AIR', a.tx, a.ty + 36);
+      ctx.restore();
+    }
+
+    // Plane silhouette
+    if (a.active && !a.done) {
+      ctx.save();
+      ctx.translate(a.px, a.py);
+      ctx.rotate(Math.atan2(a.vy, a.vx));
+      ctx.fillStyle = '#ccc';
+      // Fuselage
+      ctx.beginPath();
+      ctx.moveTo(18, 0); ctx.lineTo(-14, -5); ctx.lineTo(-10, 0); ctx.lineTo(-14, 5);
+      ctx.closePath(); ctx.fill();
+      // Wings
+      ctx.fillRect(-6, -16, 10, 32);
+      // Tail
+      ctx.fillRect(-14, -8, 6, 5);
+      ctx.fillRect(-14, 3, 6, 5);
+      ctx.restore();
+    }
+
+    // Falling bombs + impact rings
+    a.bombs.forEach(b => {
+      if (b.exploded) return;
+      let progress = 1 - b.timer / AIRSTRIKE_FALL_TIME;
+      ctx.save();
+      // Shrinking warning ring (visible before impact)
+      ctx.globalAlpha = 0.25 * (1 - progress);
+      ctx.strokeStyle = '#ff4400'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(b.x, b.y, AIRSTRIKE_BOMB_RADIUS * (1 - progress * 0.4), 0, Math.PI * 2); ctx.stroke();
+      // Bomb dot growing as it falls
+      ctx.globalAlpha = 0.7 + progress * 0.3;
+      ctx.fillStyle = '#ff3300';
+      ctx.beginPath(); ctx.arc(b.x, b.y, 3 + progress * 6, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    });
+  });
+}
+
 // ============================================================
 const offCanvas = document.createElement('canvas');
 offCanvas.width = W; offCanvas.height = H;
@@ -2193,7 +2355,7 @@ function startGame() {
 
 function initGame(hosting) {
   mapDrawn = false;
-  explosions = []; bullets = []; aiBullets = []; aiTanks = []; medpacks = []; turrets = []; turretBullets = []; playerWalls = []; mines = []; aiHitIds.clear();
+  explosions = []; bullets = []; aiBullets = []; aiTanks = []; medpacks = []; turrets = []; turretBullets = []; playerWalls = []; mines = []; airstrikes = []; aiHitIds.clear();
   waveNum = 0; waveTimer = 0; aiSpawnTimer = 5; aiSpawnInterval = 8; surviveTime = 0; gameTime = 0; gameOverShown = false;
   aiKillCount = 0; nextMedpackAt = 2 + Math.floor(Math.random() * 2);
   level = 0; levelEnemiesTotal = 0; levelEnemiesSpawned = 0; levelEnemiesKilled = 0;
@@ -2306,6 +2468,7 @@ function gameLoop(ts) {
   // Medpacks
   updateMedpacks(dt);
   if (isHost) updateMines(dt);
+  updateAirstrikes(dt);
 
   // Network send
   if (myTank) {
@@ -2340,6 +2503,7 @@ function gameLoop(ts) {
   drawPickups(ctx);
   drawMedpacks(ctx);
   drawMines(ctx);
+  drawAirstrikes(ctx);
   drawTurrets(ctx);
   drawPlayerWalls(ctx);
   drawExplosions(ctx);
