@@ -595,7 +595,7 @@ class Bullet {
       return;
     }
     if (this.type === 'flame') {
-      let lf = Math.max(0, (this.life || 0) / 0.6);
+      let lf = Math.max(0, (this.life || 0) / 1.8);
       let r = 5 + (1 - lf) * 7; // grows as it cools/fades
       ctx.save();
       ctx.globalAlpha = 0.85 * lf;
@@ -723,10 +723,10 @@ class Tank {
     if (w === 'maingun') {
       let speed = 140;
       bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 'maingun', owner));
-      this.fireCooldown = 0.25;
+      this.fireCooldown = 0.5;
     } else if (w === 'rocket') {
       bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*53, Math.sin(angle)*53, 'rocket', owner));
-      this.ammo.rocket--; this.fireCooldown = 0.5;
+      this.ammo.rocket--; this.fireCooldown = 1.0;
     } else if (w === 'cannon') {
       bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*133, Math.sin(angle)*133, 'cannon', owner));
       this.ammo.cannon--; this.fireCooldown = 0.7;
@@ -737,10 +737,10 @@ class Tank {
         let a = base + off;
         bullets.push(new Bullet(this.x, this.y, Math.cos(a)*153, Math.sin(a)*153, 'spread', owner));
       });
-      this.ammo.spread--; this.fireCooldown = 0.35;
+      this.ammo.spread--; this.fireCooldown = 0.75;
     } else if (w === 'laser') {
       fireLaser(this, angle, owner);
-      this.ammo.laser--; this.fireCooldown = 0.1;
+      this.ammo.laser--; this.fireCooldown = 0.8;
     } else if (w === 'mine') {
       // Cap how many live robo-mines this player can have deployed at once
       if (mines.filter(m => m.owner === owner && m.alive).length >= MAX_ROBOMINES_PER_PLAYER) return;
@@ -754,7 +754,7 @@ class Tank {
         let a = angle + (Math.random() - 0.5) * 0.5;
         let speed = 180 + Math.random() * 100;
         let fb = new Bullet(this.x + Math.cos(angle)*16, this.y + Math.sin(angle)*16, Math.cos(a)*speed, Math.sin(a)*speed, 'flame', owner);
-        fb.life = 0.6;
+        fb.life = 1.8;
         bullets.push(fb);
       }
       this.fireCooldown = 0.05;
