@@ -1,0 +1,2416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TANKS — Two Player Online</title>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: 'Courier New', monospace; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  #lobby { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 20px; padding: 30px; }
+  h1 { font-size: 56px; color: #f1c40f; text-shadow: 0 0 20px #f1c40f88; letter-spacing: 10px; }
+  .mode-tabs { display: flex; gap: 0; border: 2px solid #444; border-radius: 6px; overflow: hidden; }
+  .mode-tab { padding: 10px 28px; background: #252540; cursor: pointer; font-size: 15px; transition: background 0.2s; border: none; color: #eee; font-family: inherit; }
+  .mode-tab.active { background: #f1c40f; color: #1a1a2e; font-weight: bold; }
+  .lobby-section { background: #252540; border: 1px solid #444; border-radius: 10px; padding: 24px 36px; display: flex; flex-direction: column; align-items: center; gap: 14px; min-width: 340px; }
+  .lobby-section h3 { font-size: 16px; color: #aaa; text-transform: uppercase; letter-spacing: 2px; }
+  .code-display { font-size: 48px; color: #f1c40f; letter-spacing: 12px; font-weight: bold; text-shadow: 0 0 12px #f1c40f66; }
+  button { background: #f1c40f; color: #1a1a2e; border: none; padding: 11px 28px; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; font-family: inherit; transition: background 0.2s; }
+  button:hover { background: #f4d03f; }
+  button.secondary { background: #444; color: #eee; }
+  button.secondary:hover { background: #555; }
+  input[type=text] { background: #1a1a2e; border: 2px solid #444; color: #eee; padding: 10px 16px; border-radius: 6px; font-size: 24px; width: 120px; text-align: center; letter-spacing: 6px; font-family: inherit; }
+  input[type=text]:focus { outline: none; border-color: #f1c40f; }
+  #status { color: #aaa; font-size: 14px; min-height: 20px; }
+  #gameContainer { display: none; flex-direction: column; align-items: center; padding: 10px; gap: 6px; }
+  #gameMain { display: flex; gap: 0; align-items: flex-start; }
+  #hud { display: flex; align-items: center; justify-content: space-between; width: 1040px; background: #252540; border-radius: 8px 8px 0 0; padding: 8px 16px; font-size: 14px; }
+  .hp-bar { display: flex; gap: 4px; align-items: center; }
+  .hp-dot { width: 10px; height: 10px; border-radius: 50%; transition: opacity 0.2s; }
+  .hp-dot.full { opacity: 1; }
+  .hp-dot.empty { opacity: 0.2; }
+  #kothTimer { color: #f1c40f; font-size: 13px; text-align: center; }
+  #canvas { display: block; cursor: crosshair; }
+  #weaponBar { display: flex; gap: 6px; background: #252540; border-radius: 0 0 8px 8px; padding: 8px 16px; width: 1040px; }
+  .weapon-slot { flex: 1; background: #1a1a2e; border: 2px solid #444; border-radius: 6px; padding: 6px 8px; text-align: center; font-size: 12px; cursor: pointer; transition: border-color 0.2s; }
+  .weapon-slot.active { border-color: #f1c40f; background: #2a2510; }
+  .weapon-slot .wname { color: #ddd; }
+  .weapon-slot .wammo { color: #aaa; font-size: 11px; }
+  .weapon-slot .wcool { color: #e74c3c; font-size: 11px; }
+  #gameOver { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000000cc; z-index: 100; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
+  #gameOver h2 { font-size: 48px; color: #f1c40f; text-shadow: 0 0 20px #f1c40f; }
+  #gameOver p { font-size: 20px; color: #eee; }
+  .join-row { display: flex; gap: 10px; align-items: center; }
+  .status-badge { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #aaa; margin-left: 6px; }
+  .status-badge.shield { background: #3498db; box-shadow: 0 0 8px #3498db; }
+  .status-badge.speed { background: #2ecc71; box-shadow: 0 0 8px #2ecc71; }
+  #waveInfo { color: #e67e22; font-size: 13px; text-align: center; }
+  #shopBar { display: none; width: 200px; background: #1a2a1a; border: 2px solid #2ecc71; border-radius: 0 8px 8px 0; padding: 8px 8px; flex-shrink: 0; max-height: 520px; overflow-y: auto; }
+  #shopBar .shop-title { color: #2ecc71; font-size: 12px; font-weight: bold; text-align: center; margin-bottom: 6px; }
+  #shopBar .shop-row { display: flex; flex-direction: column; gap: 6px; }
+  .shop-btn { background: #252540; border: 2px solid #444; border-radius: 6px; padding: 6px 8px; color: #eee; font-family: inherit; font-size: 11px; cursor: pointer; text-align: center; width: 100%; transition: border-color 0.2s; }
+  .shop-btn:hover { border-color: #f1c40f; }
+  .shop-btn.disabled { opacity: 0.4; cursor: not-allowed; }
+  .shop-btn .cost { color: #f1c40f; font-weight: bold; }
+  #coinDisplay { color: #f1c40f; font-weight: bold; font-size: 14px; }
+  #levelBanner { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #f1c40f; font-size: 36px; font-weight: bold; text-shadow: 0 0 20px #f1c40f88; pointer-events: none; z-index: 50; text-align: center; }
+  .placing-hint { color: #2ecc71; font-size: 12px; text-align: center; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!-- LOBBY -->
+<div id="lobby">
+  <h1>TANKS</h1>
+  <div class="mode-tabs">
+    <button class="mode-tab active" id="tabKoth" onclick="selectMode('koth')">King of the Hill</button>
+    <button class="mode-tab" id="tabCoop" onclick="selectMode('coop')">Co-op Survival</button>
+  </div>
+  <button id="soloBtn" style="padding:13px 44px;font-size:18px;background:#27ae60;color:#fff;border:none;border-radius:8px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;font-weight:bold;" onclick="startSolo()">▶ Play Solo</button>
+  <div style="color:#777;font-size:12px;letter-spacing:2px;">— or play with a friend —</div>
+  <div class="lobby-section">
+    <h3>Host a Game</h3>
+    <button onclick="hostGame()">Host Game</button>
+    <div class="code-display" id="hostCode">----</div>
+    <div id="hostStatus" style="color:#aaa;font-size:13px;">Click Host to generate a code</div>
+  </div>
+  <div class="lobby-section">
+    <h3>Join a Game</h3>
+    <div class="join-row">
+      <input type="text" id="joinCode" maxlength="4" placeholder="----" />
+      <button onclick="joinGame()">Join</button>
+    </div>
+    <div id="joinStatus" style="color:#aaa;font-size:13px;">Enter the host's 4-digit code</div>
+  </div>
+  <button id="launchBtn" style="display:none;padding:14px 48px;font-size:20px;background:#27ae60;color:#fff;border:none;border-radius:8px;cursor:pointer;letter-spacing:2px;text-transform:uppercase;font-weight:bold;" onclick="launchGame()">Launch Game</button>
+  <div id="status"></div>
+</div>
+
+<!-- GAME -->
+<div id="gameContainer">
+  <div id="hud">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span id="p1Label" style="font-weight:bold;color:#5dade2;">YOU</span>
+      <div class="hp-bar" id="p1HP"></div>
+      <span id="p1Badges"></span>
+    </div>
+    <div id="kothTimer">—</div>
+    <div id="waveInfo" style="display:none;"></div>
+    <div id="p2Hud" style="display:flex;align-items:center;gap:8px;">
+      <span id="p2Badges"></span>
+      <div class="hp-bar" id="p2HP"></div>
+      <span id="p2Label" style="font-weight:bold;color:#e74c3c;">OPP</span>
+    </div>
+  </div>
+  <div id="gameMain">
+    <div style="position:relative;">
+      <canvas id="canvas" width="1248" height="624"></canvas>
+      <div id="levelBanner"></div>
+    </div>
+    <div id="shopBar">
+      <div class="shop-title">SHOP — <span id="coinDisplay">0</span> coins</div>
+      <div class="shop-row" id="shopRow"></div>
+      <div class="placing-hint" id="placingHint"></div>
+    </div>
+  </div>
+  <div id="weaponBar"></div>
+</div>
+
+<!-- GAME OVER -->
+<div id="gameOver">
+  <h2 id="goTitle">Game Over</h2>
+  <p id="goMsg"></p>
+  <button onclick="backToLobby()">Back to Lobby</button>
+</div>
+
+<script>
+// ============================================================
+// CONSTANTS
+// ============================================================
+const TILE = 26;
+const COLS = 48;
+const ROWS = 24;
+const W = COLS * TILE; // 1248
+const H = ROWS * TILE; // 624
+const GRASS = 0, WALL = 1, SWAMP = 2, HAZARD = 3;
+const P1_COLOR = '#5dade2';
+const P2_COLOR = '#e74c3c';
+const AI_COLOR = '#a0d636';
+const AI_COLOR_HEAVY = '#6b3fa0';
+const AI_COLOR_BRUTE = '#e6e632';
+const AI_COLOR_BOSS = '#ff2060';
+const KOTH_WIN_TIME = 180; // 3 minutes
+const KOTH_MOVE_INTERVAL = 45;
+const HILL_RADIUS = 70;
+const TANK_SIZE = 34;
+const RESPAWN_TIME = 5;
+const LIVES_PER_LEVEL = 3;
+
+// ============================================================
+// STATE
+// ============================================================
+let mode = 'koth'; // 'koth' or 'coop'
+let isHost = false;
+let isSolo = false; // single-player: no peer connection, no opponent tank
+let peer = null;
+let conn = null;
+let gameRunning = false;
+let mapData = [];
+let pickups = [];
+let explosions = [];
+let bullets = [];
+let aiBullets = [];
+let aiHitIds = new Set(); // bullet ids that already damaged my tank (de-dup across state syncs)
+let aiTanks = [];
+let koth = { x: W/2, y: H/2, timer: 0, p1Time: 0, p2Time: 0, moveTimer: 0, flash: 0 };
+let myTank = null;
+let oppTank = null;
+let waveNum = 0;
+let waveTimer = 0;
+let aiSpawnTimer = 0;
+let aiSpawnInterval = 5; // seconds between each AI spawn, gets faster
+let medpacks = []; // dropped by dead AI tanks
+let aiKillCount = 0;
+let nextMedpackAt = 2 + Math.floor(Math.random() * 2); // 3-5 kills between medpacks
+let surviveTime = 0;
+
+// Level / Surge system
+let level = 0;
+let levelEnemiesTotal = 0;   // how many to spawn this level
+let levelEnemiesSpawned = 0; // how many spawned so far
+let levelEnemiesKilled = 0;  // how many killed this level
+let levelPhase = 'fight';    // 'fight' or 'shop'
+let shopTimer = 0;           // countdown during shop phase
+const SHOP_DURATION = 10;    // seconds between levels
+
+// Coins & Turrets (per-player)
+let coins = 0;      // MY coins (local player)
+let oppCoins = 0;   // opponent's coins
+
+function awardCoins(bulletOwner, amount) {
+  let myNum = myTank ? myTank.playerNum : 1;
+  if (bulletOwner === myNum) { coins += amount; }
+  else if (bulletOwner === 1 || bulletOwner === 2) { oppCoins += amount; }
+}
+let turrets = [];
+let placingTurret = null;    // null or turret type being placed ('machinegun','cannon','sniper','wall')
+let turretBullets = [];
+let playerWalls = [];        // { col, row, hp, maxHp, id }
+let mines = [];              // { x, y, owner, alive, armTimer }
+
+// Turret definitions
+const MAX_TURRETS = 6;
+const MAX_TURRETS_PER_PLAYER = 3;
+const TURRET_TYPES = {
+  machinegun: { name: 'Machine Gun', cost: 15, range: 150, damage: 1, fireRate: 0.4, color: '#2ecc71', upgradeCost: [10, 15, 20, 30], maxLevel: 5 },
+  cannon:     { name: 'Cannon',      cost: 30, range: 180, damage: 2, fireRate: 1.5, color: '#e67e22', upgradeCost: [20, 30, 40, 50], maxLevel: 5 },
+  sniper:     { name: 'Sniper',      cost: 24, range: 280, damage: 3, fireRate: 2.5, color: '#9b59b6', upgradeCost: [15, 24, 36, 48], maxLevel: 5 }
+};
+const WALL_COST = 5;
+const WALL_HP = 6;
+let gameTime = 0;
+let lastTimestamp = 0;
+let animId = null;
+let mouseX = 0, mouseY = 0;
+let mouseDown = false;
+let keys = {};
+let gameOverShown = false;
+
+// ============================================================
+// LOBBY / NETWORKING
+// ============================================================
+function selectMode(m) {
+  mode = m;
+  document.getElementById('tabKoth').classList.toggle('active', m === 'koth');
+  document.getElementById('tabCoop').classList.toggle('active', m === 'coop');
+}
+
+function genCode() {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+function hostGame() {
+  const code = genCode();
+  document.getElementById('hostCode').textContent = code;
+  document.getElementById('hostStatus').textContent = 'Waiting for opponent...';
+  isHost = true; isSolo = false;
+  peer = new Peer(code);
+  peer.on('open', () => {
+    document.getElementById('hostStatus').textContent = `Share code: ${code}`;
+  });
+  peer.on('connection', c => {
+    conn = c;
+    conn.on('open', () => {
+      document.getElementById('hostStatus').textContent = 'Opponent connected!';
+      document.getElementById('launchBtn').style.display = 'block';
+    });
+    conn.on('data', handleNetworkData);
+    conn.on('close', onDisconnect);
+  });
+  peer.on('error', e => { document.getElementById('hostStatus').textContent = 'Error: ' + e.type; });
+}
+
+function joinGame() {
+  const code = document.getElementById('joinCode').value.trim();
+  if (code.length !== 4) { document.getElementById('joinStatus').textContent = 'Enter a 4-digit code'; return; }
+  document.getElementById('joinStatus').textContent = 'Connecting...';
+  isHost = false; isSolo = false;
+  peer = new Peer();
+  peer.on('open', () => {
+    conn = peer.connect(code);
+    conn.on('open', () => {
+      document.getElementById('joinStatus').textContent = 'Connected! Waiting for host...';
+    });
+    conn.on('data', handleNetworkData);
+    conn.on('close', onDisconnect);
+  });
+  peer.on('error', e => { document.getElementById('joinStatus').textContent = 'Error: ' + e.type; });
+}
+
+function launchGame() {
+  document.getElementById('launchBtn').style.display = 'none';
+  startGame();
+}
+
+function startSolo() {
+  // Single-player: act as the authoritative host with no peer connection or opponent.
+  isSolo = true; isHost = true; conn = null;
+  startGame();
+}
+
+function onDisconnect() {
+  if (gameRunning) showGameOver('Opponent disconnected', '');
+}
+
+function send(data) {
+  if (conn && conn.open) { try { conn.send(data); } catch(e) {} }
+}
+
+function handleNetworkData(data) {
+  if (data.type === 'start') {
+    mapData = data.map;
+    pickups = data.pickups;
+    koth = data.koth;
+    mode = data.mode;
+    initGame(false);
+  } else if (data.type === 'input') {
+    if (oppTank) {
+      oppTank.x = data.x; oppTank.y = data.y;
+      oppTank.angle = data.angle; oppTank.turretAngle = data.turretAngle;
+      oppTank.hp = data.hp; oppTank.shieldHp = data.shieldHp;
+      oppTank.speedBoost = data.speedBoost; oppTank.dead = data.dead;
+      oppTank.respawnTimer = data.respawnTimer;
+      if (data.lives !== undefined) oppTank.lives = data.lives;
+      // merge opponent bullets
+      const oppBullets = (data.bullets || []).map(b => Object.assign(new Bullet(b.x, b.y, b.vx, b.vy, b.type, b.owner), b));
+      bullets = bullets.filter(b => b.owner !== (isHost ? 2 : 1));
+      bullets.push(...oppBullets);
+    }
+  } else if (data.type === 'state') {
+    if (isHost) return; // host doesn't receive state
+    aiTanks = (data.ai || []).map(a => { let t = new AiTank(a.x, a.y, a.tankType); Object.assign(t, a); return t; });
+    koth = data.koth;
+    pickups = data.pickups;
+    if (data.medpacks) medpacks = data.medpacks;
+    waveNum = data.wave;
+    surviveTime = data.surviveTime;
+    if (data.level !== undefined) { level = data.level; levelPhase = data.levelPhase; shopTimer = data.shopTimer; coins = data.p2Coins; oppCoins = data.p1Coins; levelEnemiesTotal = data.levelEnemiesTotal; levelEnemiesKilled = data.levelEnemiesKilled; }
+    if (data.turrets) { turrets = data.turrets.map(td => { let t = new Turret(td.x, td.y, td.type); Object.assign(t, td); return t; }); }
+    if (data.turretBullets) { turretBullets = data.turretBullets.map(b => Object.assign(new Bullet(b.x, b.y, b.vx, b.vy, b.type, b.owner), b)); }
+    if (data.playerWalls) {
+      // Sync wall HP from host; rebuild map tiles for any changes
+      let oldIds = new Set(playerWalls.map(w => w.id));
+      let newIds = new Set(data.playerWalls.map(w => w.id));
+      // Remove destroyed walls from map
+      playerWalls.forEach(w => { if (!newIds.has(w.id)) { mapData[w.row][w.col] = GRASS; mapDrawn = false; } });
+      // Add new walls to map
+      data.playerWalls.forEach(w => { if (!oldIds.has(w.id)) { mapData[w.row][w.col] = WALL; mapDrawn = false; } });
+      playerWalls = data.playerWalls;
+    }
+    if (data.mines) { mines = data.mines; }
+    aiBullets = (data.aiBullets || []).map(b => Object.assign(new Bullet(b.x, b.y, b.vx, b.vy, b.type, b.owner), b));
+    // merge explosions from host
+    if (data.explosions) {
+      data.explosions.forEach(e => {
+        if (!explosions.find(ex => Math.abs(ex.x - e.x) < 5 && Math.abs(ex.y - e.y) < 5 && Math.abs(ex.maxR - e.maxR) < 5)) {
+          explosions.push(Object.assign({}, e));
+        }
+      });
+    }
+  } else if (data.type === 'levelStart') {
+    level = data.level; levelEnemiesTotal = data.enemies; levelPhase = 'fight';
+    showLevelBanner('LEVEL ' + level, level === 1 ? '' : 'Enemies are getting stronger!');
+  } else if (data.type === 'shopPhase') {
+    levelPhase = 'shop'; shopTimer = data.timer; coins = data.p2Coins; oppCoins = data.p1Coins;
+    showLevelBanner('LEVEL ' + level + ' CLEAR!', 'Buy turrets!');
+    updateShopUI();
+  } else if (data.type === 'turretPlace') {
+    let td = data.turret;
+    let t = new Turret(td.x, td.y, td.type, td.placedBy); t.id = td.id;
+    turrets.push(t);
+  } else if (data.type === 'turretUpgrade') {
+    let t = turrets.find(t => t.id === data.id);
+    if (t) {
+      t.level = data.level; t.range += 30; t.damage += 1; t.fireRate *= 0.8; t.maxHp += 3; t.hp = t.maxHp;
+      // Mirror the Sniper's laser transformation at max level
+      if (t.type === 'sniper' && data.level >= TURRET_TYPES[t.type].maxLevel) {
+        t.isLaserCannon = true; t.color = '#00ffcc'; t.damage += 2; t.range += 50;
+      }
+    }
+  } else if (data.type === 'minePlaced') {
+    let md = data.mine;
+    mines.push({ x: md.x, y: md.y, owner: md.owner, alive: true, armTimer: 1.5, id: md.id });
+  } else if (data.type === 'mineExplode') {
+    let m = mines.find(m => m.id === data.id);
+    if (m) { m.alive = false; }
+    spawnExplosion(data.x, data.y, MINE_RADIUS, false);
+    // No friendly fire: only the enemy player takes blast damage, and only in KoTH.
+    if (mode === 'koth') {
+      [myTank, oppTank].filter(t => t && !t.dead && t.playerNum !== data.owner).forEach(t => {
+        if (dist(data.x, data.y, t.x, t.y) < MINE_RADIUS) t.takeDamage(MINE_DAMAGE);
+      });
+    }
+  } else if (data.type === 'bossSpawn') {
+    showLevelBanner('BOSS INCOMING!', 'Defeat the boss to clear the level!');
+  } else if (data.type === 'laserHit') {
+    if (isHost) checkLaserHits(data.x1, data.y1, data.x2, data.y2, data.owner, data.dmg);
+  } else if (data.type === 'aiBulletHit') {
+    // Guest registered an AI bullet hitting itself — host removes it so it dies for everyone
+    if (isHost) { let hb = aiBullets.find(x => x.id === data.id); if (hb) hb.alive = false; }
+  } else if (data.type === 'wallPlace') {
+    let w = data.wall;
+    playerWalls.push(w);
+    mapData[w.row][w.col] = WALL;
+    mapDrawn = false;
+  } else if (data.type === 'wallDestroy') {
+    let w = playerWalls.find(pw => pw.id === data.id);
+    if (w) destroyWall(w);
+  } else if (data.type === 'turretSell') {
+    turrets = turrets.filter(t => t.id !== data.id);
+  } else if (data.type === 'turretRepair') {
+    let t = turrets.find(t => t.id === data.id);
+    if (t) { t.hp = t.maxHp; }
+  } else if (data.type === 'pickup') {
+    // Guest received pickup notification from host
+    if (myTank) collectPickup(myTank, { type: data.pickupType });
+  } else if (data.type === 'medpack') {
+    // Guest received medpack notification from host
+    if (myTank) myTank.hp = Math.min(myTank.maxHp, myTank.hp + data.hp);
+  } else if (data.type === 'gameOver') {
+    showGameOver(data.title, data.msg);
+  }
+}
+
+// ============================================================
+// MAP GENERATION
+// ============================================================
+function generateMap() {
+  let grid = [];
+  // Start with all grass + border walls
+  for (let r = 0; r < ROWS; r++) {
+    grid[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      if (r === 0 || r === ROWS-1 || c === 0 || c === COLS-1) { grid[r][c] = WALL; }
+      else { grid[r][c] = GRASS; }
+    }
+  }
+  // Place 8-12 small barrier clusters (2-4 tiles each)
+  let numBarriers = 2 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < numBarriers; i++) {
+    let r = 3 + Math.floor(Math.random() * (ROWS-6));
+    let c = 3 + Math.floor(Math.random() * (COLS-6));
+    let size = 1 + Math.floor(Math.random() * 2); // 1-2 tile radius
+    for (let dr = -size; dr <= size; dr++) for (let dc = -size; dc <= size; dc++) {
+      if (Math.random() < 0.6) { // don't fill every cell — makes irregular shapes
+        let nr = r+dr, nc = c+dc;
+        if (nr > 0 && nr < ROWS-1 && nc > 0 && nc < COLS-1) grid[nr][nc] = WALL;
+      }
+    }
+  }
+  // Clear base areas (corners) — bigger clearance
+  const clearBase = (row, col) => {
+    for (let dr = 0; dr < 5; dr++) for (let dc = 0; dc < 5; dc++) {
+      let r = row+dr, c = col+dc;
+      if (r >= 0 && r < ROWS && c >= 0 && c < COLS) grid[r][c] = GRASS;
+    }
+  };
+  clearBase(1, 1); clearBase(ROWS-6, 1); clearBase(1, COLS-6); clearBase(ROWS-6, COLS-6);
+  return grid;
+}
+
+function isTilePassable(col, row) {
+  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return false;
+  return mapData[row][col] !== WALL;
+}
+
+function tileAt(px, py) {
+  return mapData[Math.floor(py/TILE)] && mapData[Math.floor(py/TILE)][Math.floor(px/TILE)];
+}
+
+function isWall(px, py) {
+  if (px < 0 || px >= W || py < 0 || py >= H) return true;
+  return tileAt(px, py) === WALL;
+}
+
+// ============================================================
+// PICKUPS
+// ============================================================
+// Weapons are unlimited now, so map pickups are only Health, Speed, and Armor.
+const PICKUP_TYPES = ['health','speed','armor'];
+const PICKUP_COLORS = { health:'#e74c3c', speed:'#2ecc71', armor:'#3498db' };
+const PICKUP_LABELS = { health:'HP', speed:'SP', armor:'AR' };
+
+function spawnPickups() {
+  pickups = [];
+  for (let i = 0; i < 12; i++) {
+    let p = randomPickupPos();
+    p.type = PICKUP_TYPES[i % PICKUP_TYPES.length];
+    p.pulse = Math.random() * Math.PI * 2;
+    p.respawnTimer = 0;
+    p.alive = true;
+    pickups.push(p);
+  }
+}
+
+function randomPickupPos() {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    let x = TILE + Math.random() * (W - TILE*2);
+    let y = TILE + Math.random() * (H - TILE*2);
+    if (!isWall(x, y)) {
+      let dx = x - koth.x, dy = y - koth.y;
+      if (Math.sqrt(dx*dx+dy*dy) > 100) return {x, y};
+    }
+  }
+  return { x: W/2, y: H/2 };
+}
+
+// ============================================================
+// WEAPONS
+// ============================================================
+const WEAPONS = ['maingun','rocket','cannon','spread','laser','mine','flamethrower'];
+const WEAPON_NAMES = { maingun:'Main Gun', rocket:'Rocket', cannon:'Cannon', spread:'Spread Shot', laser:'Laser', mine:'Robo-Mine', flamethrower:'Flamethrower' };
+
+// ============================================================
+// BULLET CLASS
+// ============================================================
+class Bullet {
+  constructor(x, y, vx, vy, type, owner) {
+    this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+    this.type = type; this.owner = owner; // 1=p1,2=p2,0=ai
+    this.alive = true;
+    this.trail = [];
+    this.age = 0;
+    this.laserBeam = null; // for laser: {x2,y2}
+    this.id = Math.random().toString(36).slice(2);
+  }
+  update(dt) {
+    if (!this.alive) return;
+    if (this.type === 'laser') { this.age += dt; if (this.age > 1) this.alive = false; return; }
+    if (this.type === 'flame') {
+      // Short lifespan + drag so flames only reach a short distance, then fizzle out
+      this.life = (this.life || 0) - dt;
+      if (this.life <= 0) { this.alive = false; return; }
+      this.vx *= 0.9; this.vy *= 0.9;
+      this.x += this.vx * dt; this.y += this.vy * dt;
+      if (this.x < 0 || this.x > W || this.y < 0 || this.y > H || isWall(this.x, this.y)) this.alive = false;
+      return;
+    }
+    this.trail.push({x: this.x, y: this.y, age: 0});
+    if (this.trail.length > 10) this.trail.shift();
+    this.trail.forEach(t => t.age += dt);
+
+    // Rocket homing
+    if (this.type === 'rocket') {
+      let targets = [];
+      if (this.owner === 1 || this.owner === 2) {
+        if (mode === 'coop') {
+          // In co-op, player rockets home toward AI
+          aiTanks.filter(a => !a.dead).forEach(a => targets.push(a));
+        } else {
+          // In KoTH, player rockets home toward the other player
+          if (this.owner === 1 && oppTank && !oppTank.dead) targets.push(oppTank);
+          if (this.owner === 2 && myTank && !myTank.dead) targets.push(myTank);
+        }
+      }
+      if (this.owner === 0) { // AI: home toward players
+        if (myTank && !myTank.dead) targets.push(myTank);
+        if (oppTank && !oppTank.dead) targets.push(oppTank);
+      }
+      let best = null, bestD = Infinity;
+      targets.forEach(t => { let d = dist(this.x, this.y, t.x, t.y); if (d < bestD) { bestD = d; best = t; } });
+      if (best) {
+        let angle = Math.atan2(best.y - this.y, best.x - this.x);
+        let myAngle = Math.atan2(this.vy, this.vx);
+        let diff = angle - myAngle;
+        while (diff > Math.PI) diff -= 2*Math.PI;
+        while (diff < -Math.PI) diff += 2*Math.PI;
+        let turnRate = 1.5; // rad/s
+        myAngle += Math.sign(diff) * Math.min(Math.abs(diff), turnRate * dt);
+        let speed = 160;
+        this.vx = Math.cos(myAngle) * speed;
+        this.vy = Math.sin(myAngle) * speed;
+      }
+    }
+
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    if (this.x < 0 || this.x > W || this.y < 0 || this.y > H) { this.alive = false; return; }
+    if (this.type !== 'cannon' && !this.fromTurret && isWall(this.x, this.y)) {
+      // Damage player-built walls
+      let col = Math.floor(this.x / TILE), row = Math.floor(this.y / TILE);
+      let pw = playerWalls.find(w => w.col === col && w.row === row);
+      if (pw && isHost) damageWall(col, row, 1);
+      this.alive = false;
+    }
+  }
+  draw(ctx) {
+    if (!this.alive) return;
+    if (this.type === 'laser') {
+      if (!this.laserBeam) return;
+      ctx.save();
+      ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.globalAlpha = Math.max(0, 1 - this.age);
+      ctx.shadowBlur = 10; ctx.shadowColor = '#00ffff';
+      ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(this.laserBeam.x2, this.laserBeam.y2); ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    if (this.type === 'flame') {
+      let lf = Math.max(0, (this.life || 0) / 0.3);
+      let r = 5 + (1 - lf) * 7; // grows as it cools/fades
+      ctx.save();
+      ctx.globalAlpha = 0.85 * lf;
+      let g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.35, '#ffd24a'); g.addColorStop(0.75, '#e8531a'); g.addColorStop(1, 'rgba(150,30,0,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+      return;
+    }
+    // Trail
+    this.trail.forEach((t, i) => {
+      let a = (i / this.trail.length) * 0.5;
+      ctx.globalAlpha = a; ctx.fillStyle = this.type === 'rocket' ? '#e67e22' : '#ffffff';
+      ctx.beginPath(); ctx.arc(t.x, t.y, 2, 0, Math.PI*2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    if (this.type === 'maingun' || this.type === 'spread') {
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(this.x, this.y, 4, 0, Math.PI*2); ctx.fill();
+    } else if (this.type === 'rocket') {
+      ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(Math.atan2(this.vy, this.vx));
+      // engine glow
+      ctx.fillStyle = '#e67e22'; ctx.beginPath(); ctx.arc(-8, 0, 5, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#e74c3c'; ctx.beginPath();
+      ctx.moveTo(6, 0); ctx.lineTo(-6, -4); ctx.lineTo(-6, 4); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else if (this.type === 'cannon') {
+      ctx.fillStyle = '#e67e22'; ctx.beginPath(); ctx.arc(this.x, this.y, 7, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
+}
+
+// ============================================================
+// TANK CLASS
+// ============================================================
+class Tank {
+  constructor(x, y, color, playerNum) {
+    this.x = x; this.y = y; this.color = color; this.playerNum = playerNum;
+    this.angle = 0; this.turretAngle = 0;
+    this.hp = 10; this.maxHp = 10;
+    this.shieldHp = 0; this.speedBoost = 0;
+    this.dead = false; this.respawnTimer = 0;
+    this.baseX = x; this.baseY = y;
+    this.ammo = { maingun: Infinity, rocket: Infinity, cannon: Infinity, spread: Infinity, laser: Infinity, mine: Infinity, flamethrower: Infinity };
+    this.activeWeapon = 'maingun';
+    this.laserCooldown = 0;
+    this.fireCooldown = 0;
+    this.shieldFlash = 0;
+    this.lives = LIVES_PER_LEVEL;
+  }
+
+  takeDamage(dmg) {
+    if (this.shieldHp > 0) {
+      this.shieldHp -= dmg; this.shieldFlash = 0.3;
+      if (this.shieldHp < 0) { this.hp += this.shieldHp; this.shieldHp = 0; }
+    } else {
+      this.hp -= dmg;
+    }
+    if (this.hp <= 0) { this.hp = 0; this.die(); }
+  }
+
+  die() {
+    this.dead = true;
+    this.shieldHp = 0; this.speedBoost = 0;
+    spawnExplosion(this.x, this.y, 50, true);
+    if (mode === 'coop') {
+      this.lives--;
+      if (this.lives > 0) {
+        this.respawnTimer = RESPAWN_TIME;
+      } else {
+        this.respawnTimer = Infinity; // stay dead
+        checkAllDead();
+      }
+    } else {
+      this.respawnTimer = RESPAWN_TIME;
+    }
+  }
+
+  respawn() {
+    this.dead = false; this.hp = this.maxHp; this.shieldHp = 0; this.speedBoost = 0;
+    this.x = this.baseX; this.y = this.baseY;
+    this.ammo = { maingun: Infinity, rocket: Infinity, cannon: Infinity, spread: Infinity, laser: Infinity, mine: Infinity, flamethrower: Infinity };
+    this.activeWeapon = 'maingun'; this.laserCooldown = 0; this.fireCooldown = 0;
+  }
+
+  move(dt, dx, dy) {
+    if (this.dead) {
+      this.respawnTimer -= dt;
+      if (this.respawnTimer <= 0) this.respawn();
+      return;
+    }
+    let spd = 138;
+    if (this.speedMult) spd *= this.speedMult;
+    if (this.speedBoost > 0) { spd *= 1.6; this.speedBoost -= dt; }
+
+    if (dx !== 0 || dy !== 0) {
+      // Normalize diagonal so it's not faster
+      let len = Math.sqrt(dx*dx + dy*dy);
+      dx /= len; dy /= len;
+      this.angle = Math.atan2(dy, dx);
+      let nx = this.x + dx * spd * dt;
+      let ny = this.y + dy * spd * dt;
+      // Collision: try to slide
+      if (!isWall(nx, this.y)) this.x = nx;
+      if (!isWall(this.x, ny)) this.y = ny;
+      // Clamp to canvas
+      this.x = Math.max(TANK_SIZE/2, Math.min(W - TANK_SIZE/2, this.x));
+      this.y = Math.max(TANK_SIZE/2, Math.min(H - TANK_SIZE/2, this.y));
+    }
+    if (this.fireCooldown > 0) this.fireCooldown -= dt;
+    if (this.laserCooldown > 0) this.laserCooldown -= dt;
+    if (this.shieldFlash > 0) this.shieldFlash -= dt;
+  }
+
+  fire(targetX, targetY) {
+    if (this.dead) return;
+    if (this.fireCooldown > 0) return;
+    let w = this.activeWeapon;
+    if (w !== 'maingun' && this.ammo[w] <= 0) return;
+    // laser has no cooldown now
+
+    let angle = Math.atan2(targetY - this.y, targetX - this.x);
+    let owner = this.playerNum;
+
+    if (w === 'maingun') {
+      let speed = 420;
+      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 'maingun', owner));
+      this.fireCooldown = 0.25;
+    } else if (w === 'rocket') {
+      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*160, Math.sin(angle)*160, 'rocket', owner));
+      this.ammo.rocket--; this.fireCooldown = 0.5;
+    } else if (w === 'cannon') {
+      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*400, Math.sin(angle)*400, 'cannon', owner));
+      this.ammo.cannon--; this.fireCooldown = 0.7;
+    } else if (w === 'spread') {
+      let base = angle, spread = 0.22;
+      let offsets = [-2*spread, -spread, 0, spread, 2*spread];
+      offsets.forEach(off => {
+        let a = base + off;
+        bullets.push(new Bullet(this.x, this.y, Math.cos(a)*460, Math.sin(a)*460, 'spread', owner));
+      });
+      this.ammo.spread--; this.fireCooldown = 0.35;
+    } else if (w === 'laser') {
+      fireLaser(this, angle, owner);
+      this.ammo.laser--; this.fireCooldown = 0.1;
+    } else if (w === 'mine') {
+      mines.push({ x: this.x, y: this.y, owner, alive: true, armTimer: 1.5, id: Math.random().toString(36).slice(2) });
+      this.ammo.mine--; this.fireCooldown = 0.5;
+      send({ type: 'minePlaced', mine: { x: this.x, y: this.y, owner, id: mines[mines.length-1].id } });
+    } else if (w === 'flamethrower') {
+      // Short-range cone of fire: a few quick-fading flame particles per tick (hold to stream)
+      for (let i = 0; i < 3; i++) {
+        let a = angle + (Math.random() - 0.5) * 0.5;
+        let speed = 150 + Math.random() * 70;
+        let fb = new Bullet(this.x + Math.cos(angle)*16, this.y + Math.sin(angle)*16, Math.cos(a)*speed, Math.sin(a)*speed, 'flame', owner);
+        fb.life = 0.3;
+        bullets.push(fb);
+      }
+      this.fireCooldown = 0.06;
+    }
+
+    if (this.ammo[w] <= 0 && w !== 'maingun') this.activeWeapon = 'maingun';
+  }
+
+  cycleWeapon() {
+    let idx = WEAPONS.indexOf(this.activeWeapon);
+    for (let i = 1; i < WEAPONS.length; i++) {
+      let next = WEAPONS[(idx + i) % WEAPONS.length];
+      if (next === 'maingun' || this.ammo[next] > 0) { this.activeWeapon = next; break; }
+    }
+  }
+
+  draw(ctx) {
+    if (this.dead) {
+      // Draw wreck
+      ctx.save(); ctx.translate(this.baseX, this.baseY); ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#555'; ctx.fillRect(-TANK_SIZE/2, -TANK_SIZE/2, TANK_SIZE, TANK_SIZE);
+      ctx.fillStyle = '#333'; ctx.font = '10px Courier New'; ctx.textAlign = 'center';
+      ctx.fillText(`${Math.ceil(this.respawnTimer)}s`, 0, 4);
+      ctx.restore();
+      return;
+    }
+    ctx.save(); ctx.translate(this.x, this.y);
+
+    // Shield glow
+    if (this.shieldHp > 0) {
+      let pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.01);
+      ctx.shadowBlur = 15 + pulse * 10; ctx.shadowColor = '#3498db';
+      ctx.strokeStyle = this.shieldFlash > 0 ? '#ffffff' : '#3498db';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, TANK_SIZE/2 + 6, 0, Math.PI*2); ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    ctx.rotate(this.angle);
+
+    // Tank body
+    ctx.fillStyle = this.color;
+    ctx.fillRect(-TANK_SIZE/2, -TANK_SIZE/2, TANK_SIZE, TANK_SIZE);
+
+    // Track marks
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    for (let i = -12; i <= 12; i += 6) {
+      ctx.fillRect(-TANK_SIZE/2, i-1, 5, 3);
+      ctx.fillRect(TANK_SIZE/2 - 5, i-1, 5, 3);
+    }
+
+    // Turret base
+    ctx.rotate(this.turretAngle - this.angle);
+    ctx.fillStyle = this.color; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    // Barrel
+    ctx.fillStyle = '#888';
+    ctx.fillRect(0, -4, 18, 8);
+
+    ctx.restore();
+
+    // HP bar above tank
+    let barW = TANK_SIZE + 4, barH = 4;
+    let bx = this.x - barW / 2, by = this.y - TANK_SIZE / 2 - 8;
+    ctx.fillStyle = '#333'; ctx.fillRect(bx, by, barW, barH);
+    let hpPct = this.hp / this.maxHp;
+    ctx.fillStyle = hpPct > 0.5 ? '#2ecc71' : hpPct > 0.25 ? '#f39c12' : '#e74c3c';
+    ctx.fillRect(bx, by, barW * hpPct, barH);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 0.5; ctx.strokeRect(bx, by, barW, barH);
+    // HP text
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 9px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText(this.hp + '/' + this.maxHp, this.x, by - 2);
+  }
+}
+
+// ============================================================
+// AI TANK CLASS
+// ============================================================
+class AiTank extends Tank {
+  constructor(x, y, tankType) {
+    let color = tankType === 'boss' ? AI_COLOR_BOSS : tankType === 'brute' ? AI_COLOR_BRUTE : tankType === 'heavy' ? AI_COLOR_HEAVY : AI_COLOR;
+    super(x, y, color, 0);
+    this.tankType = tankType || 'light';
+    if (this.tankType === 'boss') {
+      let bossHp = 5 + level * 2; // 7, 9, 11, 13... gentler scaling
+      this.hp = bossHp; this.maxHp = bossHp;
+      this.speedMult = Math.min(0.7, 0.35 + level * 0.04); // slower, caps lower
+      this.isBoss = true;
+      this.bossFireRate = Math.max(0.6, 1.5 - level * 0.1); // fires slower, min 0.6s
+      this.bossBulletCount = Math.min(5, 2 + Math.floor(level / 3)); // fewer bullets per volley
+    } else if (this.tankType === 'heavy') {
+      this.hp = 2; this.maxHp = 2;
+      this.speedMult = 0.7;
+    } else if (this.tankType === 'brute') {
+      this.hp = 1; this.maxHp = 1;
+      this.speedMult = 0.4;
+      this.isBrute = true;
+      this.bulletDamage = 2; // double damage
+    } else {
+      this.hp = 1; this.maxHp = 1;
+      this.speedMult = 1;
+    }
+    this.state = 'patrol';
+    this.patrolTimer = 0;
+    this.patrolAngle = Math.random() * Math.PI * 2;
+    this.fireCooldown = 0;
+    this.id = Math.random().toString(36).slice(2);
+  }
+
+  updateAI(dt) {
+    if (this.dead) return;
+    // Find nearest player or turret
+    let targets = [myTank, oppTank].filter(t => t && !t.dead);
+    turrets.filter(t => !t.dead).forEach(t => targets.push(t));
+    let nearest = null, nearestD = Infinity;
+    targets.forEach(t => { let d = dist(this.x, this.y, t.x, t.y); if (d < nearestD) { nearestD = d; nearest = t; } });
+
+    let attackRange = this.isBoss ? 400 : 200;
+    let chaseRange = this.isBoss ? 800 : 350;
+    if (nearestD < attackRange) this.state = 'attack';
+    else if (nearestD < chaseRange) this.state = 'chase';
+    else { this.patrolTimer -= dt; if (this.patrolTimer <= 0) { this.patrolTimer = 2; this.patrolAngle = Math.random() * Math.PI * 2; } this.state = 'patrol'; }
+
+    if (this.state === 'patrol') {
+      this.turretAngle = this.patrolAngle;
+      this.move(dt, Math.cos(this.patrolAngle), Math.sin(this.patrolAngle));
+    } else if (this.state === 'chase' && nearest) {
+      let chaseAngle = Math.atan2(nearest.y - this.y, nearest.x - this.x);
+      this.turretAngle = chaseAngle;
+      this.move(dt, Math.cos(chaseAngle), Math.sin(chaseAngle));
+    } else if (this.state === 'attack' && nearest) {
+      this.turretAngle = Math.atan2(nearest.y - this.y, nearest.x - this.x);
+      // Strafe perpendicular to target
+      let strafeAngle = this.turretAngle + Math.PI/2;
+      this.move(dt, Math.cos(strafeAngle), Math.sin(strafeAngle));
+      // Fire
+      this.fireCooldown -= dt;
+      if (this.fireCooldown <= 0) {
+        this.fireCooldown = this.isBoss ? this.bossFireRate : 1.5;
+        let speed = 420;
+        let a = this.turretAngle + (Math.random()-0.5)*0.2;
+        if (this.isBoss) {
+          // Boss fires a fan of bullets that scales with level
+          let count = this.bossBulletCount;
+          let spread = 0.15 * (count - 1);
+          for (let i = 0; i < count; i++) {
+            let off = -spread / 2 + (spread / (count - 1)) * i;
+            let bb = new Bullet(this.x, this.y, Math.cos(a + off) * speed, Math.sin(a + off) * speed, 'maingun', 0);
+            bb.bulletDamage = this.bulletDamage || 1;
+            aiBullets.push(bb);
+          }
+        } else {
+          let bb = new Bullet(this.x, this.y, Math.cos(a)*speed, Math.sin(a)*speed, 'maingun', 0);
+          bb.bulletDamage = this.bulletDamage || 1;
+          aiBullets.push(bb);
+        }
+      }
+    }
+  }
+
+  draw(ctx) {
+    if (this.isBoss && !this.dead) {
+      // Boss draws 1.5x bigger with a pulsing glow
+      let pulse = 0.5 + 0.3 * Math.sin(Date.now() * 0.005);
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      // Glow
+      ctx.shadowBlur = 20; ctx.shadowColor = AI_COLOR_BOSS;
+      ctx.beginPath(); ctx.arc(0, 0, TANK_SIZE * 0.9, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,32,96,${pulse * 0.3})`; ctx.fill();
+      ctx.shadowBlur = 0;
+      // Scale up for body
+      ctx.rotate(this.angle);
+      let s = 1.5;
+      ctx.fillStyle = this.color;
+      ctx.fillRect(-TANK_SIZE/2 * s, -TANK_SIZE/2 * s, TANK_SIZE * s, TANK_SIZE * s);
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      for (let i = -16; i <= 16; i += 6) {
+        ctx.fillRect(-TANK_SIZE/2 * s, i-1, 6, 3);
+        ctx.fillRect(TANK_SIZE/2 * s - 6, i-1, 6, 3);
+      }
+      ctx.rotate(this.turretAngle - this.angle);
+      ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#888'; ctx.fillRect(0, -5, 24, 10);
+      ctx.restore();
+      // Boss label
+      ctx.fillStyle = '#ff2060'; ctx.font = 'bold 11px Courier New'; ctx.textAlign = 'center';
+      ctx.fillText('BOSS', this.x, this.y - TANK_SIZE * 0.9 - 14);
+      // HP bar (wider for boss)
+      let barW = TANK_SIZE * 1.8, barH = 5;
+      let bx = this.x - barW / 2, by = this.y - TANK_SIZE * 0.9 - 8;
+      ctx.fillStyle = '#333'; ctx.fillRect(bx, by, barW, barH);
+      let hpPct = this.hp / this.maxHp;
+      ctx.fillStyle = hpPct > 0.5 ? '#2ecc71' : hpPct > 0.25 ? '#f39c12' : '#e74c3c';
+      ctx.fillRect(bx, by, barW * hpPct, barH);
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 0.5; ctx.strokeRect(bx, by, barW, barH);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 9px Courier New';
+      ctx.fillText(this.hp + '/' + this.maxHp, this.x, by - 2);
+    } else {
+      super.draw(ctx);
+    }
+  }
+}
+
+// ============================================================
+// LASER RAYCAST
+// ============================================================
+function fireLaser(tank, angle, owner) {
+  let x = tank.x, y = tank.y;
+  let dx = Math.cos(angle), dy = Math.sin(angle);
+  let step = 2, maxDist = W + H;
+  for (let d = 0; d < maxDist; d += step) {
+    x += dx * step; y += dy * step;
+    if (x < 0 || x > W || y < 0 || y > H || isWall(x, y)) break;
+  }
+  let lb = new Bullet(tank.x, tank.y, 0, 0, 'laser', owner);
+  lb.laserBeam = { x2: x, y2: y };
+  bullets.push(lb);
+  // Host always runs hit check; guest sends laser info to host
+  if (isHost) {
+    checkLaserHits(tank.x, tank.y, x, y, owner, 2);
+  } else {
+    send({ type: 'laserHit', x1: tank.x, y1: tank.y, x2: x, y2: y, owner, dmg: 2 });
+  }
+}
+
+function checkLaserHits(x1, y1, x2, y2, owner, dmg) {
+  let targets = [];
+  let isPlayerLaser = (owner === 1 || owner === 2);
+  // In co-op, player lasers only hit AI. In KoTH, they hit the other player.
+  if (!(mode === 'coop' && isPlayerLaser)) {
+    let myNum = myTank ? myTank.playerNum : -1;
+    let oppNum = oppTank ? oppTank.playerNum : -1;
+    if (owner !== myNum && myTank && !myTank.dead) targets.push(myTank);
+    if (owner !== oppNum && oppTank && !oppTank.dead) targets.push(oppTank);
+  }
+  if (owner !== 0) aiTanks.filter(a => !a.dead).forEach(a => targets.push(a));
+  targets.forEach(t => {
+    if (lineCircleIntersect(x1, y1, x2, y2, t.x, t.y, TANK_SIZE/2)) {
+      let wasDead = t.dead;
+      t.takeDamage(dmg);
+      if (!wasDead && t.dead && t instanceof AiTank && isHost) {
+        awardCoins(owner, 2);
+        aiKillCount++;
+        if (aiKillCount >= nextMedpackAt) {
+          medpacks.push({ x: t.x, y: t.y, hp: 2, alive: true, ttl: 10 });
+          aiKillCount = 0;
+          nextMedpackAt = 2 + Math.floor(Math.random() * 2);
+        }
+        if (mode === 'coop') onAIKilled();
+      }
+    }
+  });
+}
+
+function lineCircleIntersect(x1, y1, x2, y2, cx, cy, r) {
+  let dx = x2-x1, dy = y2-y1;
+  let fx = x1-cx, fy = y1-cy;
+  let a = dx*dx+dy*dy, b = 2*(fx*dx+fy*dy), c = fx*fx+fy*fy-r*r;
+  let disc = b*b - 4*a*c;
+  if (disc < 0) return false;
+  disc = Math.sqrt(disc);
+  let t1 = (-b - disc)/(2*a), t2 = (-b + disc)/(2*a);
+  return (t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1);
+}
+
+// ============================================================
+// EXPLOSIONS
+// ============================================================
+function spawnExplosion(x, y, maxR, isTank) {
+  explosions.push({ x, y, r: 0, maxR, alpha: 1, isTank });
+}
+
+function updateExplosions(dt) {
+  explosions.forEach(e => {
+    e.r += (e.maxR / 0.5) * dt;
+    e.alpha -= dt / 0.5;
+  });
+  explosions = explosions.filter(e => e.alpha > 0);
+}
+
+function drawExplosions(ctx) {
+  explosions.forEach(e => {
+    ctx.save(); ctx.globalAlpha = e.alpha;
+    let g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.r);
+    g.addColorStop(0, '#fff'); g.addColorStop(0.3, '#f1c40f'); g.addColorStop(0.7, '#e67e22'); g.addColorStop(1, 'transparent');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ============================================================
+// KOTH
+// ============================================================
+function randomKothPos() {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    let x = TILE*3 + Math.random() * (W - TILE*6);
+    let y = TILE*3 + Math.random() * (H - TILE*6);
+    if (!isWall(x, y)) return { x, y };
+  }
+  return { x: W/2, y: H/2 };
+}
+
+function updateKoth(dt) {
+  if (mode !== 'koth') return;
+  koth.moveTimer += dt;
+  if (koth.moveTimer >= KOTH_MOVE_INTERVAL) {
+    koth.moveTimer = 0;
+    let pos = randomKothPos();
+    koth.x = pos.x; koth.y = pos.y; koth.flash = 1;
+    // Respawn pickups too far from hill (they might now be near it)
+    if (isHost) pickups.forEach(p => { if (!p.alive) return; let dx=p.x-koth.x,dy=p.y-koth.y; if (Math.sqrt(dx*dx+dy*dy)<100) { p.alive=false; p.respawnTimer=1; } });
+  }
+  if (koth.flash > 0) koth.flash -= dt * 4;
+
+  let p1In = false, p2In = false;
+  if (myTank && !myTank.dead) {
+    let dx = myTank.x - koth.x, dy = myTank.y - koth.y;
+    p1In = Math.sqrt(dx*dx+dy*dy) <= HILL_RADIUS;
+  }
+  if (oppTank && !oppTank.dead) {
+    let dx = oppTank.x - koth.x, dy = oppTank.y - koth.y;
+    p2In = Math.sqrt(dx*dx+dy*dy) <= HILL_RADIUS;
+  }
+
+  if (p1In && !p2In) koth.p1Time += dt;
+  if (p2In && !p1In) koth.p2Time += dt;
+
+  // Check win
+  if (isHost) {
+    if (koth.p1Time >= KOTH_WIN_TIME) { send({type:'gameOver',title:'You Win!',msg:'Opponent wins KoTH'}); showGameOver('You Win!', 'You held the hill for 3 minutes!'); }
+    if (koth.p2Time >= KOTH_WIN_TIME) { send({type:'gameOver',title:'Opponent Wins!',msg:'You win KoTH'}); showGameOver('Opponent Wins!', 'They held the hill for 3 minutes.'); }
+  }
+}
+
+function drawKoth(ctx) {
+  if (mode !== 'koth') return;
+  let flash = koth.flash || 0;
+  ctx.save();
+  ctx.globalAlpha = 0.15 + flash * 0.2;
+  ctx.fillStyle = '#f1c40f';
+  ctx.beginPath(); ctx.arc(koth.x, koth.y, HILL_RADIUS, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // Dashed border
+  ctx.save(); ctx.setLineDash([10, 6]);
+  ctx.strokeStyle = flash > 0 ? '#ffffff' : '#f1c40f';
+  ctx.lineWidth = 3; ctx.globalAlpha = 0.8;
+  ctx.beginPath(); ctx.arc(koth.x, koth.y, HILL_RADIUS, 0, Math.PI*2); ctx.stroke();
+  ctx.restore();
+
+  ctx.save(); ctx.fillStyle = '#f1c40f'; ctx.font = 'bold 14px Courier New';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('HILL', koth.x, koth.y); ctx.restore();
+}
+
+// ============================================================
+// LEVEL / SURGE SYSTEM (Host only, Co-op)
+// ============================================================
+function getLevelConfig(lvl) {
+  // Each level gets harder: more enemies, faster spawns, more heavies
+  let enemies = Math.min(4 + lvl * 3, 40);         // 7, 10, 13, 16... cap 40
+  let spawnRate = Math.max(1.2, 5 - lvl * 0.4);   // 4.6, 4.2, 3.8... min 1.2s
+  let heavyChance = Math.min(0.15 + lvl * 0.08, 0.7); // 23%, 31%, 39%... cap 70%
+  let bruteChance = Math.min(0.05 + lvl * 0.05, 0.35); // 10%, 15%, 20%... cap 35%
+  return { enemies, spawnRate, heavyChance, bruteChance };
+}
+
+function checkAllDead() {
+  let p1Dead = myTank && myTank.dead && myTank.lives <= 0;
+  if (isSolo) {
+    if (p1Dead) showGameOver('GAME OVER', 'You fell on Level ' + level + '!');
+    return;
+  }
+  let p2Dead = oppTank && oppTank.dead && oppTank.lives <= 0;
+  if (p1Dead && p2Dead) {
+    send({ type: 'gameOver', title: 'GAME OVER', msg: 'All lives lost on Level ' + level + '!' });
+    showGameOver('GAME OVER', 'All lives lost on Level ' + level + '!');
+  }
+}
+
+function startNextLevel() {
+  level++;
+  let cfg = getLevelConfig(level);
+  levelEnemiesTotal = cfg.enemies;
+  levelEnemiesSpawned = 0;
+  levelEnemiesKilled = 0;
+  aiSpawnInterval = cfg.spawnRate;
+  aiSpawnTimer = 1.5;
+  levelPhase = 'fight';
+  // Reset lives for both players each level
+  if (myTank) { myTank.lives = LIVES_PER_LEVEL; if (myTank.dead) { myTank.respawn(); } }
+  if (oppTank) { oppTank.lives = LIVES_PER_LEVEL; if (oppTank.dead) { oppTank.respawn(); } }
+  // Show level banner
+  showLevelBanner('LEVEL ' + level, level === 1 ? '' : 'Enemies are getting stronger!');
+  send({ type: 'levelStart', level, enemies: levelEnemiesTotal });
+}
+
+function spawnOneAI() {
+  if (levelEnemiesSpawned >= levelEnemiesTotal) return;
+  levelEnemiesSpawned++;
+  let cfg = getLevelConfig(level);
+  let pos = randomSpawnPos();
+  let roll = Math.random();
+  let type = roll < cfg.bruteChance ? 'brute' : roll < cfg.bruteChance + cfg.heavyChance ? 'heavy' : 'light';
+  aiTanks.push(new AiTank(pos.x, pos.y, type));
+}
+
+function onAIKilled() {
+  levelEnemiesKilled++;
+  let aliveAI = aiTanks.filter(a => !a.dead);
+  let bossAlive = aliveAI.some(a => a.isBoss);
+  let regularDone = levelEnemiesSpawned >= levelEnemiesTotal;
+
+  // All regular enemies dead — spawn boss if not already spawned
+  if (regularDone && aliveAI.length === 0 && !bossAlive && levelPhase === 'fight') {
+    levelPhase = 'boss';
+    showLevelBanner('BOSS INCOMING!', 'Defeat the boss to clear the level!');
+    let pos = randomSpawnPos();
+    let boss = new AiTank(pos.x, pos.y, 'boss');
+    aiTanks.push(boss);
+    send({ type: 'bossSpawn' });
+    return;
+  }
+
+  // Boss killed — level cleared
+  if (levelPhase === 'boss' && aliveAI.length === 0) {
+    levelPhase = 'shop';
+    shopTimer = SHOP_DURATION;
+    // Bonus coins for killing the boss
+    let bossBonus = 5 + level * 2;
+    coins += bossBonus; oppCoins += bossBonus;
+    showLevelBanner('LEVEL ' + level + ' CLEAR!', `Boss defeated! +${bossBonus} coins each!`);
+    send({ type: 'shopPhase', timer: SHOP_DURATION, p1Coins: coins, p2Coins: oppCoins });
+    updateShopUI();
+  }
+}
+
+function showLevelBanner(title, sub) {
+  let el = document.getElementById('levelBanner');
+  el.innerHTML = title + (sub ? '<br><span style="font-size:16px;color:#eee;">' + sub + '</span>' : '');
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+// ============================================================
+// TURRET SYSTEM
+// ============================================================
+class Turret {
+  constructor(x, y, type, placedBy) {
+    this.x = x; this.y = y;
+    this.type = type;
+    this.placedBy = placedBy || 1; // which player placed this (1 or 2)
+    this.level = 1;
+    let def = TURRET_TYPES[type];
+    this.range = def.range;
+    this.damage = def.damage;
+    this.fireRate = def.fireRate;
+    this.color = def.color;
+    this.fireCooldown = 0;
+    this.turretAngle = 0;
+    this.id = Math.random().toString(36).slice(2);
+    this.hp = 5; this.maxHp = 5;
+    this.dead = false;
+    this.damageFlash = 0;
+  }
+
+  takeDamage(dmg) {
+    this.hp -= dmg;
+    this.damageFlash = 0.2;
+    if (this.hp <= 0) { this.hp = 0; this.dead = true; spawnExplosion(this.x, this.y, 40, true); }
+  }
+
+  upgrade() {
+    let def = TURRET_TYPES[this.type];
+    if (this.level >= def.maxLevel) return false;
+    let cost = def.upgradeCost[this.level - 1];
+    if (coins < cost) return false;
+    coins -= cost;
+    this.level++;
+    this.range += 30;
+    this.damage += 1;
+    this.fireRate *= 0.8;
+    this.maxHp += 3; this.hp = this.maxHp;
+    // Only the Sniper transforms into a Laser cannon at max level
+    if (this.level >= def.maxLevel && this.type === 'sniper') {
+      this.isLaserCannon = true;
+      this.color = '#00ffcc';
+      this.damage += 2;
+      this.range += 50;
+    }
+    return true;
+  }
+
+  getUpgradeCost() {
+    let def = TURRET_TYPES[this.type];
+    if (this.level >= def.maxLevel) return null;
+    return def.upgradeCost[this.level - 1];
+  }
+
+  getRepairCost() {
+    if (this.dead || this.hp >= this.maxHp) return null;
+    return 3 + this.level * 2; // 5 at level 1, scales with level
+  }
+
+  repair() {
+    let cost = this.getRepairCost();
+    if (!cost || coins < cost) return false;
+    coins -= cost;
+    this.hp = this.maxHp;
+    return true;
+  }
+
+  update(dt) {
+    if (this.dead) return;
+    this.fireCooldown -= dt;
+    if (this.damageFlash > 0) this.damageFlash -= dt;
+    // Find nearest AI
+    let best = null, bestD = Infinity;
+    aiTanks.filter(a => !a.dead).forEach(a => {
+      let d = dist(this.x, this.y, a.x, a.y);
+      if (d < this.range && d < bestD) { bestD = d; best = a; }
+    });
+    if (best) {
+      this.turretAngle = Math.atan2(best.y - this.y, best.x - this.x);
+      if (this.fireCooldown <= 0) {
+        this.fireCooldown = this.fireRate;
+        if (this.isLaserCannon) {
+          // Fire a laser beam
+          let lb = new Bullet(this.x, this.y, 0, 0, 'laser', -1);
+          let ex = this.x, ey = this.y;
+          let dx = Math.cos(this.turretAngle), dy = Math.sin(this.turretAngle);
+          for (let d = 0; d < this.range; d += 2) {
+            ex += dx * 2; ey += dy * 2;
+            if (ex < 0 || ex > W || ey < 0 || ey > H || isWall(ex, ey)) break;
+          }
+          lb.laserBeam = { x2: ex, y2: ey };
+          turretBullets.push(lb);
+          if (isHost) checkLaserHits(this.x, this.y, ex, ey, this.placedBy, this.damage);
+        } else {
+          let speed = 500;
+          let a = this.turretAngle + (Math.random() - 0.5) * 0.05;
+          let b = new Bullet(this.x, this.y, Math.cos(a) * speed, Math.sin(a) * speed, 'maingun', -1);
+          b.turretDmg = this.damage;
+          b.fromTurret = true;
+          b.turretOwner = this.placedBy;
+          turretBullets.push(b);
+        }
+      }
+    }
+  }
+
+  draw(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    if (this.dead) {
+      // Wreck
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = '#444';
+      ctx.fillRect(-10, -10, 20, 20);
+      ctx.restore();
+      return;
+    }
+    // Range circle (faint)
+    if (placingTurret || levelPhase === 'shop') {
+      ctx.globalAlpha = 0.1;
+      ctx.fillStyle = this.color;
+      ctx.beginPath(); ctx.arc(0, 0, this.range, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // Damage flash
+    if (this.damageFlash > 0) {
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#ff0000';
+      ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // Base
+    ctx.fillStyle = '#333';
+    ctx.fillRect(-12, -12, 24, 24);
+    ctx.fillStyle = this.color;
+    ctx.fillRect(-10, -10, 20, 20);
+    // Level stars
+    ctx.fillStyle = '#f1c40f'; ctx.font = 'bold 8px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText('★'.repeat(this.level), 0, -16);
+    // Barrel
+    ctx.rotate(this.turretAngle);
+    if (this.isLaserCannon) {
+      ctx.fillStyle = '#00ffcc';
+      ctx.fillRect(0, -4, 20, 8);
+      ctx.fillStyle = '#fff';
+      ctx.globalAlpha = 0.6;
+      ctx.fillRect(2, -2, 16, 4);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = '#888';
+      ctx.fillRect(0, -3, 16, 6);
+    }
+    ctx.restore();
+    // HP bar (drawn without rotation)
+    ctx.save();
+    let barW = 24, barH = 3;
+    let bx = this.x - barW / 2, by = this.y + 14;
+    ctx.fillStyle = '#333'; ctx.fillRect(bx, by, barW, barH);
+    ctx.fillStyle = this.hp > this.maxHp * 0.3 ? '#2ecc71' : '#e74c3c';
+    ctx.fillRect(bx, by, barW * (this.hp / this.maxHp), barH);
+    ctx.restore();
+  }
+}
+
+function updateTurrets(dt) {
+  turrets.forEach(t => t.update(dt));
+  turrets = turrets.filter(t => !t.dead);
+  // Turret bullets vs AI
+  turretBullets.forEach(b => {
+    if (!b.alive) return;
+    b.update(dt);
+    aiTanks.filter(a => !a.dead).forEach(a => {
+      if (!b.alive) return;
+      if (dist(b.x, b.y, a.x, a.y) < TANK_SIZE / 2 + 4) {
+        let wasDead = a.dead;
+        a.takeDamage(b.turretDmg || 1);
+        b.alive = false;
+        if (!wasDead && a.dead) {
+          // Award coins to the player who placed the turret
+          if (b.turretOwner) awardCoins(b.turretOwner, a.tankType === 'heavy' ? 4 : a.isBoss ? 10 : 2);
+          aiKillCount++;
+          if (aiKillCount >= nextMedpackAt) {
+            medpacks.push({ x: a.x, y: a.y, hp: 1, pulse: 0, alive: true, ttl: 10 });
+            aiKillCount = 0;
+            nextMedpackAt = 2 + Math.floor(Math.random() * 2);
+          }
+          onAIKilled();
+        }
+      }
+    });
+  });
+  turretBullets = turretBullets.filter(b => b.alive);
+}
+
+function drawTurrets(ctx) {
+  turrets.forEach(t => t.draw(ctx));
+  turretBullets.forEach(b => b.draw(ctx));
+}
+
+// ============================================================
+// PLAYER-BUILT WALLS
+// ============================================================
+function tryPlaceWall(canvasX, canvasY) {
+  if (coins < WALL_COST) return false;
+  let col = Math.floor(canvasX / TILE);
+  let row = Math.floor(canvasY / TILE);
+  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return false;
+  if (mapData[row][col] !== GRASS) return false;
+  // Don't place on top of turrets or players
+  let cx = col * TILE + TILE / 2, cy = row * TILE + TILE / 2;
+  if (turrets.some(t => dist(t.x, t.y, cx, cy) < TILE)) return false;
+  if (myTank && dist(myTank.x, myTank.y, cx, cy) < TANK_SIZE) return false;
+  if (oppTank && dist(oppTank.x, oppTank.y, cx, cy) < TANK_SIZE) return false;
+  // Already a player wall here?
+  if (playerWalls.some(w => w.col === col && w.row === row)) return false;
+  coins -= WALL_COST;
+  let wall = { col, row, hp: WALL_HP, maxHp: WALL_HP, id: Math.random().toString(36).slice(2) };
+  playerWalls.push(wall);
+  mapData[row][col] = WALL;
+  mapDrawn = false; // redraw map cache
+  send({ type: 'wallPlace', wall });
+  placingTurret = null;
+  updateShopUI();
+  return true;
+}
+
+function damageWall(col, row, dmg) {
+  let w = playerWalls.find(w => w.col === col && w.row === row);
+  if (!w) return;
+  w.hp -= dmg;
+  if (w.hp <= 0) {
+    destroyWall(w);
+  }
+}
+
+function destroyWall(w) {
+  mapData[w.row][w.col] = GRASS;
+  playerWalls = playerWalls.filter(pw => pw.id !== w.id);
+  mapDrawn = false;
+  spawnExplosion(w.col * TILE + TILE / 2, w.row * TILE + TILE / 2, 20, false);
+  if (isHost) send({ type: 'wallDestroy', id: w.id });
+}
+
+function drawPlayerWalls(ctx) {
+  playerWalls.forEach(w => {
+    let x = w.col * TILE, y = w.row * TILE;
+    // HP bar above wall
+    let barW = TILE - 4, barH = 3;
+    let bx = x + 2, by = y - 5;
+    ctx.fillStyle = '#333'; ctx.fillRect(bx, by, barW, barH);
+    let pct = w.hp / w.maxHp;
+    ctx.fillStyle = pct > 0.5 ? '#2ecc71' : pct > 0.25 ? '#f39c12' : '#e74c3c';
+    ctx.fillRect(bx, by, barW * pct, barH);
+    // Tint the wall slightly blue to show it's player-built
+    ctx.fillStyle = 'rgba(93,173,226,0.25)';
+    ctx.fillRect(x, y, TILE, TILE);
+  });
+}
+
+// Turret placement
+function tryPlaceTurret(canvasX, canvasY) {
+  if (!placingTurret) return false;
+  let myNum = myTank ? myTank.playerNum : 1;
+  let myTurretCount = turrets.filter(t => t.placedBy === myNum).length;
+  if (myTurretCount >= MAX_TURRETS_PER_PLAYER) { placingTurret = null; updateShopUI(); return false; }
+  let type = placingTurret;
+  let def = TURRET_TYPES[type];
+  if (coins < def.cost) { placingTurret = null; updateShopUI(); return false; }
+  // Check valid position (not on wall, not too close to another turret)
+  if (isWall(canvasX, canvasY)) return false;
+  let tooClose = turrets.some(t => dist(t.x, t.y, canvasX, canvasY) < 40);
+  if (tooClose) return false;
+  coins -= def.cost;
+  let t = new Turret(canvasX, canvasY, type, myNum);
+  turrets.push(t);
+  placingTurret = null;
+  updateShopUI();
+  // Sync to guest
+  send({ type: 'turretPlace', turret: { x: t.x, y: t.y, type: t.type, level: t.level, id: t.id, placedBy: t.placedBy } });
+  return true;
+}
+
+function tryUpgradeTurret(canvasX, canvasY) {
+  // Check if clicking near an existing turret
+  for (let t of turrets) {
+    if (dist(canvasX, canvasY, t.x, t.y) < 20) {
+      if (t.upgrade()) {
+        updateShopUI();
+        send({ type: 'turretUpgrade', id: t.id, level: t.level });
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Shop UI
+function updateShopUI() {
+  let bar = document.getElementById('shopBar');
+  let row = document.getElementById('shopRow');
+  let hint = document.getElementById('placingHint');
+  document.getElementById('coinDisplay').textContent = coins + ' coins';
+
+  if (mode !== 'coop') { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+
+  row.innerHTML = '';
+  let myNum = myTank ? myTank.playerNum : 1;
+  let myTurretCount = turrets.filter(t => t.placedBy === myNum).length;
+  let atLimit = myTurretCount >= MAX_TURRETS_PER_PLAYER;
+
+  // Buy new turret buttons
+  for (let [key, def] of Object.entries(TURRET_TYPES)) {
+    let btn = document.createElement('button');
+    let cantBuy = atLimit || coins < def.cost;
+    btn.className = 'shop-btn' + (cantBuy ? ' disabled' : '');
+    let label = atLimit ? '<span style="color:#e74c3c;font-size:10px;">LIMIT</span>' : `<span class="cost">${def.cost} coins</span>`;
+    btn.innerHTML = `${def.name}<br>${label}<br><span style="font-size:10px;color:#aaa;">DMG:${def.damage} RNG:${def.range}</span>`;
+    btn.onclick = () => {
+      if (!atLimit && coins >= def.cost) {
+        placingTurret = key;
+        updateShopUI();
+      }
+    };
+    row.appendChild(btn);
+  }
+
+  // Build Wall button
+  let wallBtn = document.createElement('button');
+  let cantWall = coins < WALL_COST;
+  wallBtn.className = 'shop-btn' + (cantWall ? ' disabled' : '') + (placingTurret === 'wall' ? ' active' : '');
+  if (placingTurret === 'wall') wallBtn.style.borderColor = '#f1c40f';
+  wallBtn.innerHTML = `🧱 Wall<br><span class="cost">${WALL_COST} coins</span><br><span style="font-size:10px;color:#aaa;">HP:${WALL_HP} — blocks shots</span>`;
+  wallBtn.onclick = () => {
+    if (coins >= WALL_COST) { placingTurret = 'wall'; updateShopUI(); }
+  };
+  row.appendChild(wallBtn);
+
+  // Show existing turrets with upgrade/repair/sell buttons (only yours)
+  let myTurrets = turrets.filter(t => !t.dead && t.placedBy === myNum);
+  if (myTurrets.length > 0) {
+    let sep = document.createElement('div');
+    sep.style.cssText = 'height:2px;background:#444;width:100%;margin:4px 0;';
+    row.appendChild(sep);
+    myTurrets.forEach((t, i) => {
+      let def = TURRET_TYPES[t.type];
+      let upgCost = t.getUpgradeCost();
+      let repCost = t.getRepairCost();
+      let btn = document.createElement('button');
+      let cantUpgrade = !upgCost || coins < upgCost;
+      btn.className = 'shop-btn' + (cantUpgrade ? ' disabled' : '');
+      let upgLabel = upgCost ? `<span class="cost">⬆ ${upgCost} coins</span>` : '<span style="color:#2ecc71;">MAX</span>';
+      let hpText = t.hp < t.maxHp ? `<span style="color:#e74c3c;">HP:${t.hp}/${t.maxHp}</span>` : `<span style="color:#2ecc71;">HP:${t.hp}/${t.maxHp}</span>`;
+      btn.innerHTML = `${def.name} ${'★'.repeat(t.level)}<br>${upgLabel}<br><span style="font-size:10px;">${hpText} DMG:${t.damage}</span>`;
+      btn.onclick = () => {
+        if (upgCost && coins >= upgCost) {
+          t.upgrade();
+          updateShopUI();
+          send({ type: 'turretUpgrade', id: t.id, level: t.level });
+        }
+      };
+      row.appendChild(btn);
+      // Repair button if damaged
+      if (repCost) {
+        let repBtn = document.createElement('button');
+        let cantRepair = coins < repCost;
+        repBtn.className = 'shop-btn' + (cantRepair ? ' disabled' : '');
+        repBtn.style.cssText = 'background:#1a3a1a;border-color:#2ecc71;';
+        repBtn.innerHTML = `🔧 Repair<br><span class="cost">${repCost} coins</span><br><span style="font-size:10px;color:#2ecc71;">Heal to full</span>`;
+        repBtn.onclick = () => {
+          if (t.repair()) {
+            updateShopUI();
+            send({ type: 'turretRepair', id: t.id });
+          }
+        };
+        row.appendChild(repBtn);
+      }
+      // Sell button
+      let sellRefund = Math.floor(TURRET_TYPES[t.type].cost / 2);
+      let sellBtn = document.createElement('button');
+      sellBtn.className = 'shop-btn';
+      sellBtn.style.cssText = 'background:#3a1a1a;border-color:#e74c3c;';
+      sellBtn.innerHTML = `🗑 Sell<br><span style="color:#f1c40f;">+${sellRefund} coins</span>`;
+      sellBtn.onclick = () => {
+        coins += sellRefund;
+        t.dead = true;
+        turrets = turrets.filter(tr => tr.id !== t.id);
+        updateShopUI();
+        send({ type: 'turretSell', id: t.id });
+      };
+      row.appendChild(sellBtn);
+    });
+  }
+
+  let slotsLeft = MAX_TURRETS - turrets.length;
+  hint.textContent = placingTurret === 'wall'
+    ? 'Click map to place wall — ESC to cancel'
+    : placingTurret
+    ? 'Click map to place ' + TURRET_TYPES[placingTurret].name + ' — ESC to cancel'
+    : `Your turrets: ${myTurretCount}/${MAX_TURRETS_PER_PLAYER} | Walls: ${playerWalls.length}`;
+}
+
+function randomSpawnPos() {
+  // Avoid base corners and enclosed areas
+  for (let attempt = 0; attempt < 200; attempt++) {
+    let x = TILE*2 + Math.random() * (W - TILE*4);
+    let y = TILE*2 + Math.random() * (H - TILE*4);
+    if (!isWall(x, y)) {
+      // Not near player bases
+      let awayP1 = dist(x, y, myTank.baseX, myTank.baseY) > 150;
+      let awayP2 = dist(x, y, oppTank ? oppTank.baseX : W-TILE*3, oppTank ? oppTank.baseY : TILE*3) > 150;
+      if (!awayP1 || !awayP2) continue;
+      // Check that the tank can actually move — at least 2 cardinal directions must be clear
+      let hs = TANK_SIZE / 2 + 2;
+      let openDirs = 0;
+      if (!isWall(x + hs, y)) openDirs++;
+      if (!isWall(x - hs, y)) openDirs++;
+      if (!isWall(x, y + hs)) openDirs++;
+      if (!isWall(x, y - hs)) openDirs++;
+      if (openDirs >= 2) return {x, y};
+    }
+  }
+  return {x: W/2, y: H/2};
+}
+
+// ============================================================
+// BULLET COLLISION
+// ============================================================
+function checkBulletHits(dt) {
+  // My bullets vs opponent and AI
+  let allBullets = [...bullets];
+  allBullets.forEach(b => {
+    if (!b.alive || b.type === 'laser') return;
+    let oppNum = oppTank ? oppTank.playerNum : -1;
+    let myNum = myTank ? myTank.playerNum : -1;
+    let isFriendlyBullet = (b.owner === 1 || b.owner === 2 || b.owner === -1); // players + turrets
+
+    // vs opponent tank — skip friendly fire in co-op
+    if (!(mode === 'coop' && isFriendlyBullet) && b.owner !== oppNum && oppTank && !oppTank.dead) {
+      if (dist(b.x, b.y, oppTank.x, oppTank.y) < TANK_SIZE/2 + bulletRadius(b.type)) {
+        oppTank.takeDamage(bulletDmg(b.type));
+        if (b.type === 'cannon') spawnExplosion(b.x, b.y, 90, false);
+        b.alive = false;
+      }
+    }
+    // vs my tank — skip friendly fire in co-op
+    if (!(mode === 'coop' && isFriendlyBullet) && b.owner !== myNum && myTank && !myTank.dead) {
+      if (dist(b.x, b.y, myTank.x, myTank.y) < TANK_SIZE/2 + bulletRadius(b.type)) {
+        myTank.takeDamage(bulletDmg(b.type));
+        if (b.type === 'cannon') spawnExplosion(b.x, b.y, 90, false);
+        b.alive = false;
+      }
+    }
+    // vs AI (from players)
+    if (b.owner !== 0) {
+      aiTanks.filter(a => !a.dead).forEach(a => {
+        if (!b.alive) return;
+        if (dist(b.x, b.y, a.x, a.y) < TANK_SIZE/2 + bulletRadius(b.type)) {
+          let wasDead = a.dead;
+          a.takeDamage(bulletDmg(b.type));
+          if (b.type === 'cannon') spawnExplosion(b.x, b.y, 90, false);
+          b.alive = false;
+          // Track kills, award coins to shooter, drop medpack every 3-5 kills
+          if (!wasDead && a.dead) {
+            awardCoins(b.owner, a.tankType === 'heavy' ? 4 : 2);
+            aiKillCount++;
+            if (aiKillCount >= nextMedpackAt) {
+              medpacks.push({ x: a.x, y: a.y, hp: 1, pulse: 0, alive: true, ttl: 10 });
+              aiKillCount = 0;
+              nextMedpackAt = 2 + Math.floor(Math.random() * 2);
+            }
+            onAIKilled();
+          }
+        }
+      });
+    }
+    // Cannon splash
+    if (b.type === 'cannon' && !b.alive) {
+      // Splash hits players only in KoTH or from AI (not co-op friendly fire)
+      if (mode !== 'coop' || b.owner === 0) {  // AI bullets (owner=0) can still splash players
+        [myTank, oppTank].filter(t => t && !t.dead).forEach(t => {
+          if (dist(b.x, b.y, t.x, t.y) < 90) t.takeDamage(1);
+        });
+      }
+      // Splash also hits AI tanks
+      aiTanks.filter(a => !a.dead).forEach(a => {
+        if (dist(b.x, b.y, a.x, a.y) < 90) {
+          let wasDead = a.dead;
+          a.takeDamage(1);
+          if (!wasDead && a.dead) {
+            awardCoins(b.owner, a.tankType === 'heavy' ? 4 : 2);
+            aiKillCount++;
+            if (aiKillCount >= nextMedpackAt) {
+              medpacks.push({ x: a.x, y: a.y, hp: 1, pulse: 0, alive: true, ttl: 10 });
+              aiKillCount = 0;
+              nextMedpackAt = 2 + Math.floor(Math.random() * 2);
+            }
+            onAIKilled();
+          }
+        }
+      });
+      // Splash also damages player-built walls
+      if (isHost) {
+        playerWalls.forEach(w => {
+          let wx = w.col * TILE + TILE / 2, wy = w.row * TILE + TILE / 2;
+          if (dist(b.x, b.y, wx, wy) < 90) damageWall(w.col, w.row, 2);
+        });
+      }
+    }
+    // Rocket can be shot by other bullets
+    if (b.type !== 'rocket') {
+      allBullets.filter(r => r.type === 'rocket' && r.alive && r.owner !== b.owner).forEach(r => {
+        if (!b.alive) return;
+        if (dist(b.x, b.y, r.x, r.y) < 10) { b.alive = false; r.alive = false; }
+      });
+    }
+  });
+  // AI bullets vs players and turrets.
+  // Each client applies AI-bullet damage ONLY to its own tank (myTank), so both players
+  // take incoming fire equally. (Previously the host also consumed bullets overlapping the
+  // remote P2 using a stale position, stealing P2's hits and making P1 die faster.)
+  // De-dup by bullet id so a synced bullet can't hit the same tank twice across frames.
+  aiBullets.forEach(b => {
+    if (!b.alive) return;
+    if (myTank && !myTank.dead && !aiHitIds.has(b.id) &&
+        dist(b.x, b.y, myTank.x, myTank.y) < TANK_SIZE/2 + 4) {
+      myTank.takeDamage(b.bulletDamage || 1);
+      b.alive = false;
+      aiHitIds.add(b.id);
+      if (!isHost) send({ type: 'aiBulletHit', id: b.id }); // let host remove it for everyone
+    }
+    // AI bullets vs turrets (host authoritative for turret hp)
+    turrets.filter(t => !t.dead).forEach(t => {
+      if (!b.alive) return;
+      if (dist(b.x, b.y, t.x, t.y) < 14) {
+        t.takeDamage(b.bulletDamage || 1); b.alive = false;
+      }
+    });
+    // AI bullets vs player walls
+    if (b.alive && isHost) {
+      let col = Math.floor(b.x / TILE), row = Math.floor(b.y / TILE);
+      let pw = playerWalls.find(w => w.col === col && w.row === row);
+      if (pw) { damageWall(col, row, 1); b.alive = false; }
+    }
+  });
+  // Drop hit-ids for bullets that no longer exist, so the set can't grow unbounded
+  if (aiHitIds.size) {
+    let live = new Set(aiBullets.map(b => b.id));
+    aiHitIds.forEach(id => { if (!live.has(id)) aiHitIds.delete(id); });
+  }
+  // Cleanup
+  bullets = bullets.filter(b => b.alive);
+  aiBullets = aiBullets.filter(b => b.alive);
+}
+
+function bulletRadius(type) { return type === 'cannon' ? 8 : type === 'flame' ? 7 : 4; }
+function bulletDmg(type) { return (type === 'rocket' || type === 'laser') ? 2 : 1; }
+
+// ============================================================
+// PICKUPS LOGIC
+// ============================================================
+function updatePickups(dt) {
+  if (!isHost) return;
+  pickups.forEach(p => {
+    p.pulse += dt * 3;
+    if (!p.alive) {
+      p.respawnTimer -= dt;
+      if (p.respawnTimer <= 0) {
+        let pos = randomPickupPos();
+        p.x = pos.x; p.y = pos.y; p.alive = true;
+      }
+      return;
+    }
+    // Check collection
+    [myTank, oppTank].filter(t => t && !t.dead).forEach(t => {
+      if (!p.alive) return;
+      if (dist(t.x, t.y, p.x, p.y) < 20) {
+        collectPickup(t, p);
+        p.alive = false; p.respawnTimer = 20;
+        // If opponent picked it up, notify guest so they get the ammo/buff
+        if (t === oppTank) {
+          send({ type: 'pickup', pickupType: p.type });
+        }
+      }
+    });
+  });
+}
+
+function collectPickup(tank, pickup) {
+  if (pickup.type === 'health') {
+    tank.hp = Math.min(tank.maxHp, tank.hp + 4);
+  } else if (pickup.type === 'armor') {
+    // Armor persists until destroyed (absorbs damage before HP); tops up, caps at 10
+    tank.shieldHp = Math.min(tank.shieldHp + 5, 10);
+  } else if (pickup.type === 'speed') {
+    tank.speedBoost = 10;
+  }
+}
+
+function drawPickups(ctx) {
+  pickups.filter(p => p.alive).forEach(p => {
+    let pulse = 0.7 + 0.3 * Math.sin(p.pulse);
+    ctx.save();
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = PICKUP_COLORS[p.type];
+    ctx.beginPath(); ctx.arc(p.x, p.y, 12, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 9px Courier New';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(PICKUP_LABELS[p.type], p.x, p.y);
+    ctx.restore();
+  });
+}
+
+// ============================================================
+// MEDPACKS
+// ============================================================
+function updateMedpacks(dt) {
+  medpacks.forEach(m => {
+    if (!m.alive) return;
+    m.pulse += dt * 3;
+    // Despawn after 10 seconds
+    if (m.ttl !== undefined) { m.ttl -= dt; if (m.ttl <= 0) { m.alive = false; return; } }
+    [myTank, oppTank].filter(t => t && !t.dead).forEach(t => {
+      if (!m.alive) return;
+      if (dist(t.x, t.y, m.x, m.y) < 20) {
+        t.hp = Math.min(t.maxHp, t.hp + m.hp);
+        m.alive = false;
+        // Notify guest if opponent picked it up
+        if (isHost && t === oppTank) {
+          send({ type: 'medpack', hp: m.hp });
+        }
+      }
+    });
+  });
+  medpacks = medpacks.filter(m => m.alive);
+}
+
+function drawMedpacks(ctx) {
+  medpacks.filter(m => m.alive).forEach(m => {
+    let pulse = 0.7 + 0.3 * Math.sin(m.pulse);
+    ctx.save();
+    ctx.globalAlpha = pulse;
+    // Red cross on white circle
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(m.x, m.y, 11, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#e74c3c';
+    ctx.fillRect(m.x - 7, m.y - 2, 14, 4);
+    ctx.fillRect(m.x - 2, m.y - 7, 4, 14);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#2ecc71'; ctx.font = 'bold 8px Courier New';
+    ctx.textAlign = 'center'; ctx.fillText('+' + m.hp, m.x, m.y - 14);
+    ctx.restore();
+  });
+}
+
+// ============================================================
+// MINES
+// ============================================================
+const MINE_RADIUS = 60;    // explosion blast radius
+const MINE_DAMAGE = 3;
+const ROBOT_SPEED = 74;        // hunter-robot move speed (slower than tanks @138)
+const ROBOT_TRIGGER_DIST = 22; // how close to an enemy before it explodes
+const ROBOT_SEP_DIST = 36;     // robots push apart within this distance (no clumping)
+
+// Who a robot owned by `owner` should hunt: AI in co-op, the enemy player in KoTH.
+function robotTargets(owner) {
+  if (mode === 'coop') return aiTanks.filter(a => !a.dead);
+  return [myTank, oppTank].filter(t => t && !t.dead && t.playerNum !== owner);
+}
+
+function updateMines(dt) {
+  mines.forEach(m => {
+    if (!m.alive) return;
+    if (m.vx === undefined) { m.vx = 0; m.vy = 0; m.angle = Math.random() * Math.PI * 2; }
+    if (m.armTimer > 0) m.armTimer -= dt; // brief grace before it can explode
+
+    // Steering: seek nearest enemy, or wander when there are none
+    let targets = robotTargets(m.owner);
+    let nearest = null, nd = Infinity;
+    targets.forEach(t => { let d = dist(m.x, m.y, t.x, t.y); if (d < nd) { nd = d; nearest = t; } });
+
+    let ax = 0, ay = 0;
+    if (nearest) {
+      let a = Math.atan2(nearest.y - m.y, nearest.x - m.x);
+      ax += Math.cos(a); ay += Math.sin(a);
+    } else {
+      // No enemies: roam so the swarm spreads across the map
+      if (m.wanderTimer === undefined || m.wanderTimer <= 0) {
+        m.wanderAngle = Math.random() * Math.PI * 2;
+        m.wanderTimer = 1.5 + Math.random() * 2;
+      }
+      m.wanderTimer -= dt;
+      ax += Math.cos(m.wanderAngle) * 0.6; ay += Math.sin(m.wanderAngle) * 0.6;
+    }
+
+    // Separation — repel from nearby robots so they never clump
+    mines.forEach(o => {
+      if (o === m || !o.alive) return;
+      let dx = m.x - o.x, dy = m.y - o.y, d = Math.hypot(dx, dy);
+      if (d > 0.01 && d < ROBOT_SEP_DIST) {
+        let f = (ROBOT_SEP_DIST - d) / ROBOT_SEP_DIST;
+        ax += (dx / d) * f * 1.6; ay += (dy / d) * f * 1.6;
+      }
+    });
+
+    // Apply heading and move (slide along walls like a tank)
+    let len = Math.hypot(ax, ay);
+    if (len > 0.001) {
+      ax /= len; ay /= len;
+      m.vx = ax * ROBOT_SPEED; m.vy = ay * ROBOT_SPEED;
+      m.angle = Math.atan2(ay, ax);
+    } else { m.vx = 0; m.vy = 0; }
+    let nx = m.x + m.vx * dt, ny = m.y + m.vy * dt;
+    if (!isWall(nx, m.y)) m.x = nx;
+    if (!isWall(m.x, ny)) m.y = ny;
+    m.x = Math.max(8, Math.min(W - 8, m.x));
+    m.y = Math.max(8, Math.min(H - 8, m.y));
+
+    // Detonate once it reaches an enemy
+    if (m.armTimer <= 0 && nearest && nd < ROBOT_TRIGGER_DIST) detonateMine(m);
+  });
+  mines = mines.filter(m => m.alive);
+}
+
+function detonateMine(m) {
+  m.alive = false;
+  spawnExplosion(m.x, m.y, MINE_RADIUS, false);
+  send({ type: 'mineExplode', id: m.id, x: m.x, y: m.y, owner: m.owner });
+  // Damage everything in blast radius
+  if (isHost) {
+    aiTanks.filter(a => !a.dead).forEach(a => {
+      if (dist(m.x, m.y, a.x, a.y) < MINE_RADIUS) {
+        let wasDead = a.dead;
+        a.takeDamage(MINE_DAMAGE);
+        if (!wasDead && a.dead) {
+          awardCoins(m.owner, a.tankType === 'heavy' ? 4 : a.isBoss ? 10 : 2);
+          aiKillCount++;
+          if (aiKillCount >= nextMedpackAt) {
+            medpacks.push({ x: a.x, y: a.y, hp: 2, pulse: 0, alive: true, ttl: 10 });
+            aiKillCount = 0;
+            nextMedpackAt = 2 + Math.floor(Math.random() * 2);
+          }
+          if (mode === 'coop') onAIKilled();
+        }
+      }
+    });
+  }
+  // No friendly fire: robot blasts never hurt their owner, allies, or friendly turrets.
+  // Co-op blasts only hit AI (above); in KoTH they hit only the enemy player.
+  if (mode === 'koth') {
+    [myTank, oppTank].filter(t => t && !t.dead && t.playerNum !== m.owner).forEach(t => {
+      if (dist(m.x, m.y, t.x, t.y) < MINE_RADIUS) t.takeDamage(MINE_DAMAGE);
+    });
+  }
+}
+
+function drawMines(ctx) {
+  mines.filter(m => m.alive).forEach(m => {
+    let armed = m.armTimer <= 0;
+    let ang = m.angle || 0;
+    let blink = 0.5 + 0.5 * Math.sin(Date.now() * 0.012); // eye blink
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    ctx.rotate(ang);
+    // Little legs (animated step)
+    let step = Math.sin(Date.now() * 0.02) * 2;
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-3, 6); ctx.lineTo(-6, 9 + step); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(3, 6); ctx.lineTo(6, 9 - step); ctx.stroke();
+    // Body
+    ctx.fillStyle = armed ? '#ff6600' : '#aa6633';
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // Antenna
+    ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(0, -11); ctx.stroke();
+    ctx.fillStyle = armed ? '#ff0000' : '#883300';
+    ctx.beginPath(); ctx.arc(0, -12, 2, 0, Math.PI * 2); ctx.fill();
+    // Eye (faces travel direction)
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(3, 0, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = armed ? `rgba(255,0,0,${0.4 + blink * 0.6})` : '#446';
+    ctx.beginPath(); ctx.arc(4, 0, 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ============================================================
+// MAP DRAWING
+// ============================================================
+const offCanvas = document.createElement('canvas');
+offCanvas.width = W; offCanvas.height = H;
+let mapDrawn = false;
+
+function drawMap(ctx) {
+  if (!mapDrawn) {
+    let oc = offCanvas.getContext('2d');
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        let t = mapData[r][c];
+        let x = c * TILE, y = r * TILE;
+        if (t === GRASS) {
+          oc.fillStyle = (r+c)%2===0 ? '#3a5c2a' : '#2e4f20';
+          oc.fillRect(x, y, TILE, TILE);
+        } else if (t === WALL) {
+          oc.fillStyle = '#555';
+          oc.fillRect(x, y, TILE, TILE);
+          oc.fillStyle = '#777';
+          oc.fillRect(x, y, TILE, 4);
+        } else if (t === SWAMP) {
+          oc.fillStyle = '#1e3b1e';
+          oc.fillRect(x, y, TILE, TILE);
+          oc.fillStyle = '#2a5a3a';
+          for (let i = 0; i < 3; i++) {
+            oc.beginPath();
+            oc.arc(x + TILE*0.2 + i*TILE*0.3, y + TILE/2, 3, 0, Math.PI*2);
+            oc.fill();
+          }
+        } else if (t === HAZARD) {
+          oc.fillStyle = '#5a1515';
+          oc.fillRect(x, y, TILE, TILE);
+          oc.fillStyle = '#7a2020';
+          oc.fillRect(x+2, y+2, TILE-4, TILE-4);
+        }
+      }
+    }
+    mapDrawn = true;
+  }
+  ctx.drawImage(offCanvas, 0, 0);
+}
+
+// ============================================================
+// HUD UPDATE
+// ============================================================
+function updateHUD() {
+  // HP dots
+  function renderHP(id, tank, color) {
+    let el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = '';
+    for (let i = 0; i < 10; i++) {
+      let dot = document.createElement('div');
+      dot.className = 'hp-dot ' + (tank && i < tank.hp ? 'full' : 'empty');
+      dot.style.background = color;
+      el.appendChild(dot);
+    }
+  }
+  renderHP('p1HP', myTank, P1_COLOR);
+  renderHP('p2HP', oppTank, P2_COLOR);
+
+  // Badges
+  function renderBadges(id, tank) {
+    let el = document.getElementById(id);
+    if (!el || !tank) return;
+    el.innerHTML = '';
+    if (tank.shieldHp > 0) { let s=document.createElement('span'); s.className='status-badge shield'; s.title='Armor'; el.appendChild(s); }
+    if (tank.speedBoost > 0) { let s=document.createElement('span'); s.className='status-badge speed'; s.title='Speed'; el.appendChild(s); }
+  }
+  renderBadges('p1Badges', myTank);
+  renderBadges('p2Badges', oppTank);
+
+  // KOTH timer
+  let kothEl = document.getElementById('kothTimer');
+  let waveEl = document.getElementById('waveInfo');
+  if (mode === 'koth') {
+    kothEl.style.display = 'block'; waveEl.style.display = 'none';
+    let f = t => `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
+    let tot = `${f(KOTH_WIN_TIME)}`;
+    kothEl.textContent = `You ${f(koth.p1Time)} / ${tot} / Opp ${f(koth.p2Time)}`;
+  } else {
+    kothEl.style.display = 'none'; waveEl.style.display = 'block';
+    let st = Math.floor(surviveTime || gameTime || 0);
+    let aliveAI = aiTanks.filter(a => !a.dead).length;
+    let remaining = levelEnemiesTotal - levelEnemiesKilled;
+    let myLives = myTank ? myTank.lives : 0;
+    let oppLives = oppTank ? oppTank.lives : 0;
+    let livesStr = `❤${myLives} / ❤${oppLives}`;
+    if (levelPhase === 'shop') {
+      waveEl.textContent = `Level ${level} CLEAR! | Shop: ${Math.ceil(shopTimer)}s | 💰 ${coins} | ${livesStr}`;
+    } else if (levelPhase === 'boss') {
+      waveEl.textContent = `Level ${level} BOSS | 💰 ${coins} | ${livesStr}`;
+    } else {
+      waveEl.textContent = `Level ${level} | Enemies: ${remaining} left | 💰 ${coins} | ${livesStr}`;
+    }
+  }
+
+  // Weapon bar
+  let wb = document.getElementById('weaponBar');
+  wb.innerHTML = '';
+  if (myTank) {
+    WEAPONS.forEach(w => {
+      let slot = document.createElement('div');
+      slot.className = 'weapon-slot' + (myTank.activeWeapon === w ? ' active' : '');
+      let ammo = myTank.ammo[w];
+      let ammoStr = ammo === Infinity ? '∞' : ammo;
+      let coolStr = '';
+      if (w === 'laser' && myTank.laserCooldown > 0) coolStr = `<div class="wcool">${myTank.laserCooldown.toFixed(1)}s</div>`;
+      slot.innerHTML = `<div class="wname">${WEAPON_NAMES[w]}</div><div class="wammo">${ammoStr}</div>${coolStr}`;
+      wb.appendChild(slot);
+    });
+  }
+
+  // Keep shop coin display updated
+  if (mode === 'coop') {
+    let cd = document.getElementById('coinDisplay');
+    if (cd) cd.textContent = coins + ' coins';
+  }
+}
+
+// ============================================================
+// GAME INIT
+// ============================================================
+function startGame() {
+  if (isHost) {
+    mapData = generateMap();
+    koth = { x: W/2, y: H/2, timer: 0, p1Time: 0, p2Time: 0, moveTimer: 0, flash: 0 };
+    spawnPickups();
+    // Send start data to guest
+    send({ type: 'start', map: mapData, pickups, koth, mode });
+    initGame(true);
+  }
+  // Guest waits for 'start' packet
+}
+
+function initGame(hosting) {
+  mapDrawn = false;
+  explosions = []; bullets = []; aiBullets = []; aiTanks = []; medpacks = []; turrets = []; turretBullets = []; playerWalls = []; mines = []; aiHitIds.clear();
+  waveNum = 0; waveTimer = 0; aiSpawnTimer = 5; aiSpawnInterval = 8; surviveTime = 0; gameTime = 0; gameOverShown = false;
+  aiKillCount = 0; nextMedpackAt = 2 + Math.floor(Math.random() * 2);
+  level = 0; levelEnemiesTotal = 0; levelEnemiesSpawned = 0; levelEnemiesKilled = 0;
+  levelPhase = 'fight'; shopTimer = 0; coins = 0; oppCoins = 0; placingTurret = null;
+
+  // Player bases: host=bottom-left, guest=top-right
+  let p1x = TILE*2 + TILE/2, p1y = H - TILE*3;
+  let p2x = W - TILE*3, p2y = TILE*2 + TILE/2;
+
+  myTank = new Tank(p1x, p1y, P1_COLOR, 1);
+  myTank.baseX = p1x; myTank.baseY = p1y;
+
+  oppTank = new Tank(p2x, p2y, P2_COLOR, 2);
+  oppTank.baseX = p2x; oppTank.baseY = p2y;
+
+  if (!hosting) {
+    // Guest swaps: guest is P2 visually but "my" tank
+    [myTank.color, oppTank.color] = [P2_COLOR, P1_COLOR];
+    myTank.x = p2x; myTank.y = p2y; myTank.baseX = p2x; myTank.baseY = p2y;
+    myTank.angle = Math.PI;
+    oppTank.x = p1x; oppTank.y = p1y; oppTank.baseX = p1x; oppTank.baseY = p1y;
+    myTank.playerNum = 2; oppTank.playerNum = 1;
+  }
+
+  // Solo: no opponent tank exists at all
+  if (isSolo) oppTank = null;
+
+  if (hosting && mode === 'coop') startNextLevel();
+
+  document.getElementById('lobby').style.display = 'none';
+  document.getElementById('gameContainer').style.display = 'flex';
+  document.getElementById('p2Hud').style.display = isSolo ? 'none' : 'flex';
+  document.getElementById('gameOver').style.display = 'none';
+  gameRunning = true;
+  lastTimestamp = 0;
+  requestAnimationFrame(gameLoop);
+}
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+function gameLoop(ts) {
+  if (!gameRunning) return;
+  animId = requestAnimationFrame(gameLoop);
+  let dt = Math.min((ts - (lastTimestamp || ts)) / 1000, 0.05);
+  lastTimestamp = ts;
+  gameTime += dt;
+
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Input — arrow keys for movement, mouse for aiming
+  if (myTank) {
+    let dx = 0, dy = 0;
+    if (keys['ArrowLeft'] || keys['a'] || keys['A']) dx -= 1;
+    if (keys['ArrowRight'] || keys['d'] || keys['D']) dx += 1;
+    if (keys['ArrowUp'] || keys['w'] || keys['W']) dy -= 1;
+    if (keys['ArrowDown'] || keys['s'] || keys['S']) dy += 1;
+    myTank.move(dt, dx, dy);
+    // Aim turret at mouse
+    let rect = canvas.getBoundingClientRect();
+    let lx = mouseX - rect.left, ly = mouseY - rect.top;
+    myTank.turretAngle = Math.atan2(ly - myTank.y, lx - myTank.x);
+    // Hold-to-fire: stream while the mouse is held (cooldown gates each weapon's rate).
+    // Skipped during turret/wall placement so clicks place instead of shoot.
+    if (mouseDown && !placingTurret) myTank.fire(lx, ly);
+  }
+
+  // KoTH
+  if (isHost) updateKoth(dt);
+
+  // Pickups
+  if (isHost) updatePickups(dt);
+
+  // Level system (host only, Co-op)
+  if (isHost && mode === 'coop') {
+    surviveTime += dt;
+    if (levelPhase === 'fight' || levelPhase === 'boss') {
+      // Spawn enemies for this level (not during boss phase)
+      if (levelPhase === 'fight' && levelEnemiesSpawned < levelEnemiesTotal) {
+        aiSpawnTimer -= dt;
+        if (aiSpawnTimer <= 0) { aiSpawnTimer = aiSpawnInterval; spawnOneAI(); }
+      }
+      aiTanks.forEach(a => a.updateAI(dt));
+      aiTanks = aiTanks.filter(a => !a.dead);
+      aiBullets.forEach(b => b.update(dt));
+      aiBullets = aiBullets.filter(b => b.alive);
+    } else if (levelPhase === 'shop') {
+      shopTimer -= dt;
+      if (shopTimer <= 0) { startNextLevel(); }
+    }
+  }
+
+  // Turrets (both host and guest update visuals, host does damage)
+  if (mode === 'coop') {
+    if (isHost) updateTurrets(dt);
+    else { turretBullets.forEach(b => b.update(dt)); turretBullets = turretBullets.filter(b => b.alive); }
+  }
+
+  // Bullets
+  bullets.forEach(b => b.update(dt));
+  bullets = bullets.filter(b => b.alive);
+
+  // Collisions
+  checkBulletHits(dt);
+
+  // Explosions
+  updateExplosions(dt);
+
+  // Medpacks
+  updateMedpacks(dt);
+  if (isHost) updateMines(dt);
+
+  // Network send
+  if (myTank) {
+    let myBullets = bullets.filter(b => b.owner === myTank.playerNum);
+    send({
+      type: 'input',
+      x: myTank.x, y: myTank.y, angle: myTank.angle, turretAngle: myTank.turretAngle,
+      hp: myTank.hp, shieldHp: myTank.shieldHp, speedBoost: myTank.speedBoost,
+      dead: myTank.dead, respawnTimer: myTank.respawnTimer, lives: myTank.lives,
+      bullets: myBullets.map(b => ({x:b.x,y:b.y,vx:b.vx,vy:b.vy,type:b.type,owner:b.owner,laserBeam:b.laserBeam,age:b.age,id:b.id,life:b.life}))
+    });
+    if (isHost) {
+      send({
+        type: 'state',
+        ai: aiTanks.map(a => ({x:a.x,y:a.y,angle:a.angle,turretAngle:a.turretAngle,hp:a.hp,dead:a.dead,id:a.id,color:a.color,tankType:a.tankType})),
+        koth: koth, pickups: pickups, medpacks: medpacks, wave: waveNum, surviveTime,
+        level, levelPhase, shopTimer, p1Coins: coins, p2Coins: oppCoins,
+        levelEnemiesTotal, levelEnemiesKilled,
+        turrets: turrets.map(t => ({x:t.x,y:t.y,type:t.type,level:t.level,id:t.id,turretAngle:t.turretAngle,range:t.range,damage:t.damage,fireRate:t.fireRate,color:t.color,hp:t.hp,maxHp:t.maxHp,dead:t.dead,isLaserCannon:t.isLaserCannon||false,placedBy:t.placedBy})),
+        turretBullets: turretBullets.map(b => ({x:b.x,y:b.y,vx:b.vx,vy:b.vy,type:b.type,owner:b.owner})),
+        playerWalls: playerWalls.map(w => ({col:w.col,row:w.row,hp:w.hp,maxHp:w.maxHp,id:w.id})),
+        mines: mines.filter(m => m.alive).map(m => ({x:m.x,y:m.y,owner:m.owner,alive:true,armTimer:m.armTimer,id:m.id,angle:m.angle||0})),
+        aiBullets: aiBullets.map(b=>({x:b.x,y:b.y,vx:b.vx,vy:b.vy,type:b.type,owner:b.owner,id:b.id,bulletDamage:b.bulletDamage||1})),
+        explosions: explosions.map(e=>({...e}))
+      });
+    }
+  }
+
+  // DRAW
+  drawMap(ctx);
+  drawKoth(ctx);
+  drawPickups(ctx);
+  drawMedpacks(ctx);
+  drawMines(ctx);
+  drawTurrets(ctx);
+  drawPlayerWalls(ctx);
+  drawExplosions(ctx);
+  // Placement ghost
+  if (placingTurret && mode === 'coop') {
+    let rect = canvas.getBoundingClientRect();
+    let gx = mouseX - rect.left, gy = mouseY - rect.top;
+    if (placingTurret === 'wall') {
+      let col = Math.floor(gx / TILE), row = Math.floor(gy / TILE);
+      ctx.save(); ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#5dade2';
+      ctx.fillRect(col * TILE, row * TILE, TILE, TILE);
+      ctx.restore();
+    } else {
+      let def = TURRET_TYPES[placingTurret];
+      ctx.save(); ctx.globalAlpha = 0.4;
+      ctx.fillStyle = def.color;
+      ctx.beginPath(); ctx.arc(gx, gy, def.range, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = '#333'; ctx.fillRect(gx - 12, gy - 12, 24, 24);
+      ctx.fillStyle = def.color; ctx.fillRect(gx - 10, gy - 10, 20, 20);
+      ctx.restore();
+    }
+  }
+  // AI tanks
+  aiTanks.filter(a => !a.dead).forEach(a => a.draw(ctx));
+  // Bullets
+  [...bullets, ...aiBullets].forEach(b => b.draw(ctx));
+  // Players
+  if (oppTank) oppTank.draw(ctx);
+  if (myTank) myTank.draw(ctx);
+
+  // Draw respawn timers on bases
+  if (myTank && myTank.dead) {
+    ctx.save(); ctx.fillStyle='#f1c40f'; ctx.font='bold 16px Courier New'; ctx.textAlign='center';
+    if (myTank.lives > 0) {
+      ctx.fillText(`Respawn: ${Math.ceil(myTank.respawnTimer)}s`, myTank.baseX, myTank.baseY - 30);
+      ctx.fillText(`Lives: ${myTank.lives}`, myTank.baseX, myTank.baseY - 10);
+    } else {
+      ctx.fillStyle = '#e74c3c';
+      ctx.fillText('ELIMINATED', myTank.baseX, myTank.baseY - 20);
+    }
+    ctx.restore();
+  }
+  if (oppTank && oppTank.dead) {
+    ctx.save(); ctx.font='bold 14px Courier New'; ctx.textAlign='center';
+    if (oppTank.lives > 0) {
+      ctx.fillStyle='#f1c40f';
+      ctx.fillText(`Lives: ${oppTank.lives}`, oppTank.baseX, oppTank.baseY - 10);
+    } else {
+      ctx.fillStyle = '#e74c3c';
+      ctx.fillText('ELIMINATED', oppTank.baseX, oppTank.baseY - 20);
+    }
+    ctx.restore();
+  }
+
+  updateHUD();
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+document.addEventListener('keydown', e => {
+  keys[e.key] = true; keys[e.code] = true;
+  if (e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
+  if (e.key === 'Escape' && placingTurret) { placingTurret = null; updateShopUI(); }
+  if ((e.key === 'b' || e.key === 'B') && mode === 'coop' && gameRunning) { updateShopUI(); }
+  // Number keys 1–7 select a weapon directly
+  if (gameRunning && myTank && e.key >= '1' && e.key <= '9') {
+    let idx = parseInt(e.key, 10) - 1;
+    if (idx < WEAPONS.length) myTank.activeWeapon = WEAPONS[idx];
+  }
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; keys[e.code] = false; });
+document.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+document.getElementById('canvas').addEventListener('mousedown', e => { if (e.button === 0) mouseDown = true; });
+document.addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
+
+// Fire on click (or place/upgrade turret)
+document.getElementById('canvas').addEventListener('click', e => {
+  if (!gameRunning) return;
+  let rect = e.target.getBoundingClientRect();
+  let cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+  // Wall or turret placement/upgrade
+  if (mode === 'coop' && placingTurret === 'wall') {
+    if (tryPlaceWall(cx, cy)) return;
+  }
+  if (mode === 'coop' && placingTurret && placingTurret !== 'wall') {
+    if (tryPlaceTurret(cx, cy)) return;
+  }
+  if (mode === 'coop' && !placingTurret) {
+    if (tryUpgradeTurret(cx, cy)) return;
+  }
+  // Normal fire
+  if (myTank) myTank.fire(cx, cy);
+});
+
+// Cycle weapon on right click
+document.getElementById('canvas').addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (myTank && gameRunning) myTank.cycleWeapon();
+});
+
+// Prevent context menu everywhere
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+// ============================================================
+// GAME OVER
+// ============================================================
+function showGameOver(title, msg) {
+  if (gameOverShown) return;
+  gameOverShown = true;
+  gameRunning = false;
+  cancelAnimationFrame(animId);
+  document.getElementById('goTitle').textContent = title;
+  document.getElementById('goMsg').textContent = msg;
+  document.getElementById('gameOver').style.display = 'flex';
+}
+
+function backToLobby() {
+  gameRunning = false;
+  cancelAnimationFrame(animId);
+  if (conn) { try { conn.close(); } catch(e) {} conn = null; }
+  if (peer) { try { peer.destroy(); } catch(e) {} peer = null; }
+  mapData = []; pickups = []; explosions = []; bullets = []; aiBullets = []; aiTanks = []; turrets = []; turretBullets = []; medpacks = [];
+  myTank = null; oppTank = null; mapDrawn = false; gameOverShown = false; placingTurret = null; isSolo = false;
+  document.getElementById('shopBar').style.display = 'none';
+  koth = { x: W/2, y: H/2, timer: 0, p1Time: 0, p2Time: 0, moveTimer: 0, flash: 0 };
+  document.getElementById('hostCode').textContent = '----';
+  document.getElementById('hostStatus').textContent = 'Click Host to generate a code';
+  document.getElementById('joinStatus').textContent = 'Enter the host\'s 4-digit code';
+  document.getElementById('joinCode').value = '';
+  document.getElementById('gameContainer').style.display = 'none';
+  document.getElementById('gameOver').style.display = 'none';
+  document.getElementById('lobby').style.display = 'flex';
+  // Clear canvas
+  let canvas = document.getElementById('canvas');
+  let ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function dist(x1, y1, x2, y2) { return Math.sqrt((x2-x1)**2 + (y2-y1)**2); }
+
+// Fix AiTank.move referencing Tank.move properly for wall collision
+AiTank.prototype.move = Tank.prototype.move;
+
+// Fix AI: filter properly
+const _aiUpdate = AiTank.prototype.updateAI;
+AiTank.prototype.updateAI = function(dt) {
+  if (this.dead) return;
+  _aiUpdate.call(this, dt);
+};
+
+</script>
+</body>
+</html>
