@@ -673,7 +673,7 @@ class Bullet {
       ctx.restore(); return;
     }
     if (this.type === 'freeze') {
-      let lf = Math.max(0, (this.life || 0) / 0.45);
+      let lf = Math.max(0, (this.life || 0) / 1.8);
       let r = 4 + (1 - lf) * 5;
       ctx.save(); ctx.globalAlpha = 0.9 * lf;
       let g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
@@ -833,7 +833,7 @@ class Tank {
         let spd = 160 + Math.random() * 80;
         let fb = new Bullet(this.x + Math.cos(angle)*14, this.y + Math.sin(angle)*14,
                             Math.cos(a)*spd, Math.sin(a)*spd, 'freeze', owner);
-        fb.life = 0.45;
+        fb.life = 1.8;
         bullets.push(fb);
       }
       this.wCool.cannon = 0.05;
