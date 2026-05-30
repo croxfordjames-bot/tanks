@@ -412,10 +412,6 @@ function handleNetworkData(data) {
   } else if (data.type === 'thorStrike') {
     // Guest shows bolt flash and impact explosion
     if (!isHost) spawnExplosion(data.tx, data.ty, 70, false);
-  } else if (data.type === 'thorWaveHit') {
-    // Host applies wave damage to oppTank when guest reports it crossed them
-    if (isHost && oppTank && !oppTank.dead && data.playerNum === oppTank.playerNum)
-      oppTank.takeDamage(THOR_WAVE_DAMAGE);
   } else if (data.type === 'airstrikeLaunch') {
     // Show crosshair immediately — full state arrives via next 'state' packet
     let d = data.as;
@@ -2319,14 +2315,7 @@ function updateThor(dt) {
         if (d >= innerR && d <= outerR && !s.hitIds.has(t.id))
           { s.hitIds.add(t.id); t.takeDamage(THOR_WAVE_DAMAGE); }
       });
-      // Players — friendly fire, each client damages its own tank
-      let myD = myTank && !myTank.dead ? dist(s.tx, s.ty, myTank.x, myTank.y) : -1;
-      let myKey = 'p' + (myTank ? myTank.playerNum : 0);
-      if (myD >= innerR && myD <= outerR && !s.hitIds.has(myKey)) {
-        s.hitIds.add(myKey);
-        if (myTank) myTank.takeDamage(THOR_WAVE_DAMAGE);
-        send({ type:'thorWaveHit', id:s.id, playerNum: myTank ? myTank.playerNum : 0 });
-      }
+      // No friendly fire — Thor wave only damages AI and turrets
 
       if (s.waveR > THOR_WAVE_MAXR) s.phase = 'done';
     }
