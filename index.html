@@ -1303,7 +1303,7 @@ function drawKoth(ctx) {
 function getLevelConfig(lvl) {
   // Each level gets harder: more enemies, faster spawns, more heavies
   let enemies = Math.min(4 + lvl * 3, 40);         // 7, 10, 13, 16... cap 40
-  let spawnRate = Math.max(0.92, (5 - lvl * 0.4) / 1.3); // 1.3x faster; min ~0.92s
+  let spawnRate = Math.max(0.77, (5 - lvl * 0.4) / 1.56); // 1.3x * 1.2x = 1.56x faster total; min ~0.77s
   let heavyChance = Math.min(0.15 + lvl * 0.08, 0.7); // 23%, 31%, 39%... cap 70%
   let bruteChance = Math.min(0.05 + lvl * 0.05, 0.35); // 10%, 15%, 20%... cap 35%
   // New enemy types phase in on later levels
