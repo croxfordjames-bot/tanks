@@ -622,10 +622,45 @@ class Bullet {
     if (!this.alive) return;
     if (this.type === 'laser') {
       if (!this.laserBeam) return;
+      let alpha = Math.max(0, 1 - this.age);
+      let x1 = this.x, y1 = this.y;
+      let x2 = this.laserBeam.x2, y2 = this.laserBeam.y2;
+      let totalLen = Math.hypot(x2 - x1, y2 - y1);
+      let dx = x2 - x1, dy = y2 - y1;
+      // Perpendicular unit vector for deviation
+      let px = -dy / (totalLen || 1), py = dx / (totalLen || 1);
+      const segs = 14;
+      // Build jagged points — deviation grows with distance (accurate close, wild far)
+      let pts = [{ x: x1, y: y1 }];
+      for (let i = 1; i < segs; i++) {
+        let t = i / segs;
+        let maxDev = t * t * 22; // quadratic: 0 near muzzle, ~22px at far end
+        let dev = (Math.random() - 0.5) * 2 * maxDev;
+        pts.push({ x: x1 + dx * t + px * dev, y: y1 + dy * t + py * dev });
+      }
+      pts.push({ x: x2, y: y2 });
       ctx.save();
-      ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.globalAlpha = Math.max(0, 1 - this.age);
-      ctx.shadowBlur = 10; ctx.shadowColor = '#00ffff';
-      ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(this.laserBeam.x2, this.laserBeam.y2); ctx.stroke();
+      ctx.globalAlpha = alpha;
+      // Glow pass
+      ctx.shadowBlur = 18; ctx.shadowColor = '#00ffff';
+      ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 4; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
+      // Bright core
+      ctx.shadowBlur = 0; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
+      // Random sparks along the bolt
+      ctx.strokeStyle = '#aaffff'; ctx.lineWidth = 1;
+      for (let i = 1; i < pts.length - 1; i++) {
+        if (Math.random() < 0.35) {
+          let sp = (Math.random() - 0.5) * 14;
+          ctx.beginPath();
+          ctx.moveTo(pts[i].x, pts[i].y);
+          ctx.lineTo(pts[i].x + px * sp, pts[i].y + py * sp);
+          ctx.stroke();
+        }
+      }
       ctx.restore();
       return;
     }
@@ -1254,7 +1289,7 @@ function drawKoth(ctx) {
 function getLevelConfig(lvl) {
   // Each level gets harder: more enemies, faster spawns, more heavies
   let enemies = Math.min(4 + lvl * 3, 40);         // 7, 10, 13, 16... cap 40
-  let spawnRate = Math.max(1.2, 5 - lvl * 0.4);   // 4.6, 4.2, 3.8... min 1.2s
+  let spawnRate = Math.max(0.92, (5 - lvl * 0.4) / 1.3); // 1.3x faster; min ~0.92s
   let heavyChance = Math.min(0.15 + lvl * 0.08, 0.7); // 23%, 31%, 39%... cap 70%
   let bruteChance = Math.min(0.05 + lvl * 0.05, 0.35); // 10%, 15%, 20%... cap 35%
   // New enemy types phase in on later levels
@@ -2790,9 +2825,25 @@ document.addEventListener('keydown', e => {
   }
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; keys[e.code] = false; });
-document.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
-document.getElementById('canvas').addEventListener('mousedown', e => { if (e.button === 0) mouseDown = true; });
-document.addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
+let draggingWall = false;
+document.addEventListener('mousemove', e => {
+  mouseX = e.clientX; mouseY = e.clientY;
+  if (draggingWall && gameRunning && mode === 'coop' && placingTurret === 'wall') {
+    let rect = document.getElementById('canvas').getBoundingClientRect();
+    tryPlaceWall(e.clientX - rect.left, e.clientY - rect.top);
+  }
+});
+document.getElementById('canvas').addEventListener('mousedown', e => {
+  if (e.button === 0) {
+    mouseDown = true;
+    if (gameRunning && mode === 'coop' && placingTurret === 'wall') {
+      draggingWall = true;
+      let rect = e.target.getBoundingClientRect();
+      tryPlaceWall(e.clientX - rect.left, e.clientY - rect.top);
+    }
+  }
+});
+document.addEventListener('mouseup', e => { if (e.button === 0) { mouseDown = false; draggingWall = false; } });
 
 // Fire on click (or place/upgrade turret)
 document.getElementById('canvas').addEventListener('click', e => {
