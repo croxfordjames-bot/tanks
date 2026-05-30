@@ -372,7 +372,8 @@ function handleNetworkData(data) {
     }
   } else if (data.type === 'minePlaced') {
     let md = data.mine;
-    mines.push({ x: md.x, y: md.y, owner: md.owner, alive: true, armTimer: 1.5, id: md.id });
+    if (mines.filter(m => m.owner === md.owner && m.alive).length < MAX_ROBOMINES_PER_PLAYER)
+      mines.push({ x: md.x, y: md.y, owner: md.owner, alive: true, armTimer: 1.5, id: md.id });
   } else if (data.type === 'mineExplode') {
     let m = mines.find(m => m.id === data.id);
     if (m) { m.alive = false; }
@@ -524,10 +525,9 @@ class Bullet {
     if (!this.alive) return;
     if (this.type === 'laser') { this.age += dt; if (this.age > 1) this.alive = false; return; }
     if (this.type === 'flame') {
-      // Short lifespan + drag so flames only reach a short distance, then fizzle out
+      // Constant-speed jet with a fixed lifespan; reach = speed * life
       this.life = (this.life || 0) - dt;
       if (this.life <= 0) { this.alive = false; return; }
-      this.vx *= 0.9; this.vy *= 0.9;
       this.x += this.vx * dt; this.y += this.vy * dt;
       if (this.x < 0 || this.x > W || this.y < 0 || this.y > H || isWall(this.x, this.y)) this.alive = false;
       return;
@@ -565,7 +565,7 @@ class Bullet {
         while (diff < -Math.PI) diff += 2*Math.PI;
         let turnRate = 1.5; // rad/s
         myAngle += Math.sign(diff) * Math.min(Math.abs(diff), turnRate * dt);
-        let speed = 160;
+        let speed = 53;
         this.vx = Math.cos(myAngle) * speed;
         this.vy = Math.sin(myAngle) * speed;
       }
@@ -595,7 +595,7 @@ class Bullet {
       return;
     }
     if (this.type === 'flame') {
-      let lf = Math.max(0, (this.life || 0) / 0.3);
+      let lf = Math.max(0, (this.life || 0) / 0.6);
       let r = 5 + (1 - lf) * 7; // grows as it cools/fades
       ctx.save();
       ctx.globalAlpha = 0.85 * lf;
@@ -721,40 +721,43 @@ class Tank {
     let owner = this.playerNum;
 
     if (w === 'maingun') {
-      let speed = 420;
+      let speed = 140;
       bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 'maingun', owner));
       this.fireCooldown = 0.25;
     } else if (w === 'rocket') {
-      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*160, Math.sin(angle)*160, 'rocket', owner));
+      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*53, Math.sin(angle)*53, 'rocket', owner));
       this.ammo.rocket--; this.fireCooldown = 0.5;
     } else if (w === 'cannon') {
-      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*400, Math.sin(angle)*400, 'cannon', owner));
+      bullets.push(new Bullet(this.x, this.y, Math.cos(angle)*133, Math.sin(angle)*133, 'cannon', owner));
       this.ammo.cannon--; this.fireCooldown = 0.7;
     } else if (w === 'spread') {
       let base = angle, spread = 0.22;
       let offsets = [-2*spread, -spread, 0, spread, 2*spread];
       offsets.forEach(off => {
         let a = base + off;
-        bullets.push(new Bullet(this.x, this.y, Math.cos(a)*460, Math.sin(a)*460, 'spread', owner));
+        bullets.push(new Bullet(this.x, this.y, Math.cos(a)*153, Math.sin(a)*153, 'spread', owner));
       });
       this.ammo.spread--; this.fireCooldown = 0.35;
     } else if (w === 'laser') {
       fireLaser(this, angle, owner);
       this.ammo.laser--; this.fireCooldown = 0.1;
     } else if (w === 'mine') {
+      // Cap how many live robo-mines this player can have deployed at once
+      if (mines.filter(m => m.owner === owner && m.alive).length >= MAX_ROBOMINES_PER_PLAYER) return;
       mines.push({ x: this.x, y: this.y, owner, alive: true, armTimer: 1.5, id: Math.random().toString(36).slice(2) });
       this.ammo.mine--; this.fireCooldown = 0.5;
       send({ type: 'minePlaced', mine: { x: this.x, y: this.y, owner, id: mines[mines.length-1].id } });
     } else if (w === 'flamethrower') {
-      // Short-range cone of fire: a few quick-fading flame particles per tick (hold to stream)
-      for (let i = 0; i < 3; i++) {
+      // Cone of fire — a long-reaching jet of flame particles (hold to stream).
+      // Reach ~= speed * life; tuned for roughly 5x the original short range.
+      for (let i = 0; i < 2; i++) {
         let a = angle + (Math.random() - 0.5) * 0.5;
-        let speed = 150 + Math.random() * 70;
+        let speed = 180 + Math.random() * 100;
         let fb = new Bullet(this.x + Math.cos(angle)*16, this.y + Math.sin(angle)*16, Math.cos(a)*speed, Math.sin(a)*speed, 'flame', owner);
-        fb.life = 0.3;
+        fb.life = 0.6;
         bullets.push(fb);
       }
-      this.fireCooldown = 0.06;
+      this.fireCooldown = 0.05;
     }
 
     if (this.ammo[w] <= 0 && w !== 'maingun') this.activeWeapon = 'maingun';
@@ -1925,6 +1928,7 @@ function drawMedpacks(ctx) {
 // ============================================================
 const MINE_RADIUS = 60;    // explosion blast radius
 const MINE_DAMAGE = 3;
+const MAX_ROBOMINES_PER_PLAYER = 4; // how many live robo-mines each player may have out
 const ROBOT_SPEED = 74;        // hunter-robot move speed (slower than tanks @138)
 const ROBOT_TRIGGER_DIST = 22; // how close to an enemy before it explodes
 const ROBOT_SEP_DIST = 36;     // robots push apart within this distance (no clumping)
