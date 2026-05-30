@@ -405,8 +405,10 @@ function handleNetworkData(data) {
     spawnExplosion(data.x, data.y, data.radius, false);
     if (myTank && !myTank.dead && dist(data.x, data.y, myTank.x, myTank.y) < data.radius) myTank.takeDamage(data.dmg);
   } else if (data.type === 'thorPlayerHit') {
-    // Host confirmed wave crossed the guest tank — guest damages itself
     if (!isHost && myTank && !myTank.dead) myTank.takeDamage(data.dmg);
+  } else if (data.type === 'freezePlayer') {
+    // Host froze the guest — guest applies freeze to its own tank
+    if (!isHost && myTank && !myTank.dead) { myTank.frozen = true; myTank.frozenTimer = 10; }
   } else if (data.type === 'thorLaunch') {
     if (!thorStrikes.find(s => s.id === data.id))
       thorStrikes.push({ id:data.id, tx:data.tx, ty:data.ty, owner:data.owner,
@@ -541,7 +543,7 @@ function randomPickupPos() {
 // WEAPONS
 // ============================================================
 const WEAPONS = ['maingun','airstrike','thor','cannon','spread','laser','mine','flamethrower'];
-const WEAPON_NAMES = { maingun:'Main Gun', airstrike:'Airstrike', thor:'Hammer of Thor', cannon:'Cannon', spread:'Spread Shot', laser:'Laser', mine:'Robo-Mine', flamethrower:'Flamethrower' };
+const WEAPON_NAMES = { maingun:'Main Gun', airstrike:'Airstrike', thor:'Hammer of Thor', cannon:'Freeze Ray', spread:'Spread Shot', laser:'Laser', mine:'Robo-Mine', flamethrower:'Flamethrower' };
 
 // ============================================================
 // BULLET CLASS
@@ -655,8 +657,11 @@ class Bullet {
       ctx.moveTo(6, 0); ctx.lineTo(-6, -4); ctx.lineTo(-6, 4); ctx.closePath(); ctx.fill();
       ctx.restore();
     } else if (this.type === 'cannon') {
-      ctx.fillStyle = '#e67e22'; ctx.beginPath(); ctx.arc(this.x, this.y, 7, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.save();
+      ctx.shadowBlur = 12; ctx.shadowColor = '#00eeff';
+      ctx.fillStyle = '#00eeff'; ctx.beginPath(); ctx.arc(this.x, this.y, 7, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.restore();
     }
   }
 }
@@ -720,6 +725,12 @@ class Tank {
       this.respawnTimer -= dt;
       if (this.respawnTimer <= 0) this.respawn();
       return;
+    }
+    if (this.frozen) {
+      this.frozenTimer -= dt;
+      if (this.frozenTimer <= 0) { this.frozen = false; this.frozenTimer = 0; }
+      for (let w in this.wCool) { if (this.wCool[w] > 0) this.wCool[w] = Math.max(0, this.wCool[w] - dt); }
+      return; // can't move or fire while frozen
     }
     let spd = 138;
     if (this.speedMult) spd *= this.speedMult;
@@ -861,6 +872,19 @@ class Tank {
 
     ctx.restore();
 
+    // Frozen overlay
+    if (this.frozen) {
+      ctx.save();
+      let fp = 0.5 + 0.3 * Math.sin(Date.now() * 0.008);
+      ctx.globalAlpha = 0.55 + fp * 0.2;
+      ctx.fillStyle = '#a8f0ff';
+      ctx.beginPath(); ctx.arc(this.x, this.y, TANK_SIZE / 2 + 3, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 9px Courier New'; ctx.textAlign = 'center';
+      ctx.fillText(`❄ ${Math.ceil(this.frozenTimer)}s`, this.x, this.y - TANK_SIZE / 2 - 14);
+      ctx.restore();
+    }
+
     // HP bar above tank
     let barW = TANK_SIZE + 4, barH = 4;
     let bx = this.x - barW / 2, by = this.y - TANK_SIZE / 2 - 8;
@@ -923,6 +947,11 @@ class AiTank extends Tank {
 
   updateAI(dt) {
     if (this.dead) return;
+    if (this.frozen) {
+      this.frozenTimer -= dt;
+      if (this.frozenTimer <= 0) { this.frozen = false; this.frozenTimer = 0; }
+      return; // frozen — can't move or shoot
+    }
     // Find nearest player or turret
     let targets = [myTank, oppTank].filter(t => t && !t.dead);
     turrets.filter(t => !t.dead).forEach(t => targets.push(t));
@@ -1756,16 +1785,21 @@ function checkBulletHits(dt) {
     // vs opponent tank — skip friendly fire in co-op
     if (!(mode === 'coop' && isFriendlyBullet) && b.owner !== oppNum && oppTank && !oppTank.dead) {
       if (dist(b.x, b.y, oppTank.x, oppTank.y) < TANK_SIZE/2 + bulletRadius(b.type)) {
-        oppTank.takeDamage(bulletDmg(b.type));
-        if (b.type === 'cannon') spawnExplosion(b.x, b.y, 90, false);
+        if (b.type === 'cannon') {
+          oppTank.frozen = true; oppTank.frozenTimer = 10;
+          spawnExplosion(b.x, b.y, 50, false);
+          send({ type: 'freezePlayer', target: oppTank.playerNum });
+        } else { oppTank.takeDamage(bulletDmg(b.type)); }
         b.alive = false;
       }
     }
     // vs my tank — skip friendly fire in co-op
     if (!(mode === 'coop' && isFriendlyBullet) && b.owner !== myNum && myTank && !myTank.dead) {
       if (dist(b.x, b.y, myTank.x, myTank.y) < TANK_SIZE/2 + bulletRadius(b.type)) {
-        myTank.takeDamage(bulletDmg(b.type));
-        if (b.type === 'cannon') spawnExplosion(b.x, b.y, 90, false);
+        if (b.type === 'cannon') {
+          myTank.frozen = true; myTank.frozenTimer = 10;
+          spawnExplosion(b.x, b.y, 50, false);
+        } else { myTank.takeDamage(bulletDmg(b.type)); }
         b.alive = false;
       }
     }
@@ -1774,56 +1808,33 @@ function checkBulletHits(dt) {
       aiTanks.filter(a => !a.dead).forEach(a => {
         if (!b.alive) return;
         if (dist(b.x, b.y, a.x, a.y) < TANK_SIZE/2 + bulletRadius(b.type)) {
-          let wasDead = a.dead;
-          a.takeDamage(bulletDmg(b.type));
-          if (b.type === 'cannon') spawnExplosion(b.x, b.y, 90, false);
-          b.alive = false;
-          // Track kills, award coins to shooter, drop medpack every 3-5 kills
-          if (!wasDead && a.dead) {
-            awardCoins(b.owner, aiReward(a));
-            aiKillCount++;
-            if (aiKillCount >= nextMedpackAt) {
-              medpacks.push({ x: a.x, y: a.y, hp: 1, pulse: 0, alive: true, ttl: 10 });
-              aiKillCount = 0;
-              nextMedpackAt = 2 + Math.floor(Math.random() * 2);
+          if (b.type === 'cannon') {
+            a.frozen = true; a.frozenTimer = 10;
+            spawnExplosion(b.x, b.y, 50, false);
+          } else {
+            let wasDead = a.dead;
+            a.takeDamage(bulletDmg(b.type));
+            if (!wasDead && a.dead) {
+              awardCoins(b.owner, aiReward(a));
+              aiKillCount++;
+              if (aiKillCount >= nextMedpackAt) {
+                medpacks.push({ x: a.x, y: a.y, hp: 1, pulse: 0, alive: true, ttl: 10 });
+                aiKillCount = 0;
+                nextMedpackAt = 2 + Math.floor(Math.random() * 2);
+              }
+              onAIKilled();
             }
-            onAIKilled();
           }
+          b.alive = false;
         }
       });
     }
-    // Cannon splash
+    // (freeze ray has no splash — old cannon splash removed)
     if (b.type === 'cannon' && !b.alive) {
-      // Splash hits players only in KoTH or from AI (not co-op friendly fire)
-      if (mode !== 'coop' || b.owner === 0) {  // AI bullets (owner=0) can still splash players
-        [myTank, oppTank].filter(t => t && !t.dead).forEach(t => {
-          if (dist(b.x, b.y, t.x, t.y) < 90) t.takeDamage(1);
-        });
-      }
-      // Splash also hits AI tanks
-      aiTanks.filter(a => !a.dead).forEach(a => {
-        if (dist(b.x, b.y, a.x, a.y) < 90) {
-          let wasDead = a.dead;
-          a.takeDamage(1);
-          if (!wasDead && a.dead) {
-            awardCoins(b.owner, aiReward(a));
-            aiKillCount++;
-            if (aiKillCount >= nextMedpackAt) {
-              medpacks.push({ x: a.x, y: a.y, hp: 1, pulse: 0, alive: true, ttl: 10 });
-              aiKillCount = 0;
-              nextMedpackAt = 2 + Math.floor(Math.random() * 2);
-            }
-            onAIKilled();
-          }
-        }
+      // Freeze splash — nearby AI within 60px also get frozen
+      aiTanks.filter(a => !a.dead && !a.frozen).forEach(a => {
+        if (dist(b.x, b.y, a.x, a.y) < 60) { a.frozen = true; a.frozenTimer = 10; }
       });
-      // Splash also damages player-built walls
-      if (isHost) {
-        playerWalls.forEach(w => {
-          let wx = w.col * TILE + TILE / 2, wy = w.row * TILE + TILE / 2;
-          if (dist(b.x, b.y, wx, wy) < 90) damageWall(w.col, w.row, 2);
-        });
-      }
     }
     // Rocket can be shot by other bullets
     if (b.type !== 'rocket') {
@@ -2680,7 +2691,7 @@ function gameLoop(ts) {
     if (isHost) {
       send({
         type: 'state',
-        ai: aiTanks.map(a => ({x:a.x,y:a.y,angle:a.angle,turretAngle:a.turretAngle,hp:a.hp,dead:a.dead,id:a.id,color:a.color,tankType:a.tankType})),
+        ai: aiTanks.map(a => ({x:a.x,y:a.y,angle:a.angle,turretAngle:a.turretAngle,hp:a.hp,dead:a.dead,id:a.id,color:a.color,tankType:a.tankType,frozen:a.frozen||false,frozenTimer:a.frozenTimer||0})),
         koth: koth, pickups: pickups, medpacks: medpacks, wave: waveNum, surviveTime,
         level, levelPhase, shopTimer, p1Coins: coins, p2Coins: oppCoins,
         levelEnemiesTotal, levelEnemiesKilled,
